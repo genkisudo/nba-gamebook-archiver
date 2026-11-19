@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from datetime import date, datetime
 
 import httpx
@@ -57,6 +58,9 @@ def parse_box_score(html: str, slug: str, slate: date) -> Game:
     date_et = _slate_date(game.get("gameEt"), tip, slate)
     status = game.get("gameStatus")
     status_text = game.get("gameStatusText") or ""
+    ended = _actual_end(payload, game)
+    if not is_final_status(int(status) if status is not None else None, status_text):
+        ended = None
     return Game(
         game_id=str(game["gameId"]),
         date_et=date_et.isoformat(),
@@ -67,7 +71,7 @@ def parse_box_score(html: str, slug: str, slate: date) -> Game:
         tip_utc=tip,
         game_status=int(status) if status is not None else None,
         game_status_text=status_text,
-        final_end_utc=_actual_end(payload, game),
+        final_end_utc=ended,
     )
 
 
@@ -119,13 +123,25 @@ def get_games(
     prefixes: tuple[str, ...] = DEFAULT_PREFIXES,
     *,
     sleeper=None,
+    timeout: float = 10.0,
+    retries: int = 1,
+    deadline: float | None = None,
+    skip_slugs: set[str] | None = None,
 ) -> list[Game]:
-    kwargs = {"sleeper": sleeper} if sleeper else {}
+    kwargs = {"sleeper": sleeper, "timeout": timeout, "retries": retries}
+    if deadline is not None and time.monotonic() >= deadline:
+        return []
     page = request(client, "GET", GAMES_URL.format(date=date_et.isoformat()), **kwargs)
     if page.status_code != 200:
         raise RuntimeError(f"games page HTTP {page.status_code} for {date_et.isoformat()}")
     games: list[Game] = []
+    skip = skip_slugs or set()
     for slug in find_slugs(page.text, prefixes):
+        if slug in skip:
+            continue
+        if deadline is not None and time.monotonic() >= deadline:
+            log.warning("schedule refresh time budget exhausted")
+            break
         box = request(client, "GET", BOX_URL.format(slug=slug), **kwargs)
         if box.status_code != 200:
             log.warning("box score HTTP %s for %s", box.status_code, slug)

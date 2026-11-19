@@ -113,8 +113,9 @@ def test_sequence_saves_first_final_then_stops(tmp_path, monkeypatch):
     watcher.tick(clock.now())
     partial_rows = store.versions("0022600258")
     assert [row.kind for row in partial_rows] == ["in_game"]
-    assert partial_rows[0].path == ""
-    assert list(tmp_path.rglob("*.pdf")) == []
+    # The box score already said Final, so this partial is kept as evidence.
+    assert partial_rows[0].path.endswith(".pdf")
+    assert Path(partial_rows[0].path).is_file()
 
     clock.advance(30)
     watcher.tick(clock.now())

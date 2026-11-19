@@ -81,6 +81,8 @@ class Store:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(self.data_dir / "gbwatch.sqlite")
         self.conn.row_factory = sqlite3.Row
+        # The alerts CLI can hold the database; don't crash the daemon on that.
+        self.conn.execute("PRAGMA busy_timeout = 5000")
         self.conn.executescript(SCHEMA)
         self._add_column("versions", "note", "TEXT")
         self._add_column("versions", "late_capture", "INTEGER NOT NULL DEFAULT 0")
@@ -116,6 +118,10 @@ class Store:
         ).fetchall()
         return [_game(row) for row in rows]
 
+    def all_games(self) -> list[Game]:
+        rows = self.conn.execute("SELECT * FROM games ORDER BY tip_utc, game_id").fetchall()
+        return [_game(row) for row in rows]
+
     def active_games(self) -> list[Game]:
         rows = self.conn.execute(
             "SELECT * FROM games WHERE state != 'DONE' ORDER BY tip_utc, game_id"
@@ -138,6 +144,8 @@ class Store:
         existing.game_status_text = game.game_status_text
         if game.final_end_utc is not None:
             existing.final_end_utc = game.final_end_utc
+        if existing.final_seen_utc is None and game.final_seen_utc is not None:
+            existing.final_seen_utc = game.final_seen_utc
         self.save_game(existing)
         return existing
 
@@ -252,6 +260,16 @@ class Store:
         self.conn.execute(
             "UPDATE versions SET last_modified = ?, etag = ?, size = ? WHERE id = ?",
             (last_modified, etag, size, version_id),
+        )
+        self.conn.commit()
+
+    def update_version(self, version_id: int, **fields) -> None:
+        if not fields:
+            return
+        columns = ", ".join(f"{key} = ?" for key in fields)
+        self.conn.execute(
+            f"UPDATE versions SET {columns} WHERE id = ?",
+            (*fields.values(), version_id),
         )
         self.conn.commit()
 

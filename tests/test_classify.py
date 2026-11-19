@@ -57,9 +57,20 @@ def test_pdf_timestamps():
 
 
 def test_kind_rules_on_synthetic_text():
-    assert classify_kind("Attendance: Not Yet Counted\nFINAL BOX\n") == "in_game"
+    # SYNTHETIC. A counted attendance and periods 1-4 are what a Q4 in-game
+    # book looks like. Without a page-1 FINAL BOX it is still in progress.
+    running = (
+        "4th QUARTER (12:00) - 4th QUARTER (02:11)\n"
+        "Attendance: 19432\n"
+        "SCORE BY PERIOD 1 2 3 4 FINAL\n"
+        "Grizzlies 30 41 29 10 110\n"
+    )
+    assert classify_kind(running) == "in_game"
+    assert classify_kind("Attendance: 19432\nSCORE BY PERIOD 1 2 3 4 FINAL\n") == "in_game"
+    # FINAL BOX wins even when attendance has not been counted yet.
+    uncounted = "FINAL BOX\nAttendance: Not Yet Counted\n"
+    assert classify_kind(uncounted) == "final"
+    from gbwatch.classify import parse_text
+
+    assert parse_text(uncounted).attendance == "Not Yet Counted"
     assert classify_kind("FINAL BOX\n1st QUARTER ONLY\nAttendance: 19007\n") == "final"
-    quarter = "1st QUARTER ONLY\nAttendance: 19007\nSCORE BY PERIOD 1 FINAL\n"
-    assert classify_kind(quarter) == "in_game"
-    complete = "Attendance: 19007\nSCORE BY PERIOD 1 2 3 4 FINAL\n"
-    assert classify_kind(complete) == "final"

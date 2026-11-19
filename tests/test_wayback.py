@@ -115,7 +115,9 @@ def test_wayback_failure_does_not_raise_and_429_backs_off(tmp_path, monkeypatch)
     )
     wayback.enqueue(version.id, game.book_url)
     wayback.drain()
-    assert clock.slept  # backed off on 429
+    assert clock.slept == []  # 429 schedules next_try; it does not sleep the daemon
+    pending = store.wayback_by_status("pending")
+    assert pending and pending[0].next_try_utc
     assert store.get_version(version.id).wayback_url is None
     assert store.wayback_by_status("failed") == []
     # Still pending an hour later. The job is abandoned 24h after it was queued.

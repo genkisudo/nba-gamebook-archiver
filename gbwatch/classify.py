@@ -11,10 +11,7 @@ from gbwatch.models import ParsedBook
 
 STAT_COLS = ["FG", "FGA", "3P", "3PA", "FT", "FTA", "OR", "DR", "TOT", "A", "PF", "ST", "TO", "BS", "+/-", "PTS"]
 
-PERIOD_RE = re.compile(
-    r"\b(?:1st|2nd|3rd|4th)\s+QUARTER\b|\bOVERTIME\b",
-    re.IGNORECASE,
-)
+ATTENDANCE_RE = re.compile(r"Attendance:\s*(.+)")
 PLAYER_RE = re.compile(
     r"^\s*(\d{1,2})\s+(.+?)\s+(?:([FCG])\s+)?(\d{1,3}:\d{2})\s+(-?\d.*)$"
 )
@@ -24,24 +21,24 @@ TEAM_RE = re.compile(r"^(VISITOR|HOME):\s+(.+?)\s+\(\d+-\d+\)\s*$")
 
 
 def classify_kind(text: str) -> str:
-    """in_game when attendance is uncounted or a period header has no final score."""
-    if "Attendance: Not Yet Counted" in text:
-        return "in_game"
-    if _has_final_score(text):
+    """Final only when page 1 is the FINAL BOX.
+
+    A counted attendance plus a 1–4 score table is not enough: that is what a
+    fourth-quarter book looks like while the clock is still running. A header
+    such as ``QUARTER (mm:ss) -`` is in progress. No FINAL BOX on page 1 is
+    in-game. Attendance, counted or not, does not override FINAL BOX.
+    """
+    first_page = text.split("\f", 1)[0]
+    if re.search(r"\bFINAL BOX\b", first_page):
         return "final"
-    if PERIOD_RE.search(text):
-        return "in_game"
-    return "final"
+    return "in_game"
 
 
-def _has_final_score(text: str) -> bool:
-    if re.search(r"\bFINAL BOX\b", text):
-        return True
-    match = re.search(r"SCORE BY PERIOD([^\n]+)", text)
+def attendance_status(text: str) -> str | None:
+    match = ATTENDANCE_RE.search(text)
     if not match:
-        return False
-    columns = set(match.group(1).split())
-    return {"1", "2", "3", "4"}.issubset(columns)
+        return None
+    return match.group(1).strip() or None
 
 
 def pdftotext(path: Path) -> str:
@@ -128,7 +125,13 @@ def parse_text(text: str) -> ParsedBook:
     kind = classify_kind(text)
     section = _box_section(text)
     players, teams, score = _parse_section(section)
-    return ParsedBook(kind=kind, players=players, teams=teams, score=score)
+    return ParsedBook(
+        kind=kind,
+        players=players,
+        teams=teams,
+        score=score,
+        attendance=attendance_status(text),
+    )
 
 
 def _box_section(text: str) -> str:

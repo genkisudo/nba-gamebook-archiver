@@ -19,7 +19,7 @@ from gbwatch.http import make_client
 from gbwatch.notify import render_diff, render_show, render_summary
 from gbwatch.polymarket import EventCache, select_games
 from gbwatch.redact import install_redaction
-from gbwatch.schedule import get_games
+from gbwatch.schedule import get_games, is_final_status
 from gbwatch.store import Store
 from gbwatch.timeutil import et_calendar, parse_utc, utcnow
 from gbwatch.watcher import Watcher, discovered_too_late, state_for
@@ -132,15 +132,22 @@ def serve(config, *, client: httpx.Client | None = None, clock=None, sleep=time.
     ticks = 0
     try:
         while True:
-            now = clock.now()
-            if schedule_at is None or (now - schedule_at) >= timedelta(minutes=5):
-                _refresh_schedule(store, client, config, cache, now, watcher.sleeper, started_at)
-                schedule_at = now
-            watcher.tick(now)
+            try:
+                now = clock.now()
+                if schedule_at is None or (now - schedule_at) >= timedelta(minutes=5):
+                    _refresh_schedule(store, client, config, cache, now, watcher.sleeper, started_at)
+                    schedule_at = clock.now()
+                watcher.tick(clock.now())
+                watcher.wayback.drain(budget_seconds=2)
+            except Exception:
+                log.exception("serve iteration failed")
             ticks += 1
             if max_ticks is not None and ticks >= max_ticks:
                 break
-            delay = min(30.0, watcher.seconds_until_due(clock.now()))
+            try:
+                delay = min(30.0, watcher.seconds_until_due(clock.now()))
+            except Exception:
+                delay = 5.0
             sleep(delay)
     finally:
         store.close()
@@ -151,31 +158,54 @@ def serve(config, *, client: httpx.Client | None = None, clock=None, sleep=time.
 def _refresh_schedule(store, client, config, cache: EventCache, now: datetime, sleeper, started_at: datetime) -> None:
     today = et_calendar(now)
     discovered = []
+    deadline = time.monotonic() + 20
+    skip = {game.slug for game in store.all_games() if game.state == "DONE" and game.slug}
     for day in (today, today - timedelta(days=1)):
+        if time.monotonic() >= deadline:
+            log.warning("schedule refresh time budget exhausted")
+            break
         try:
-            discovered.extend(get_games(day, client, config.id_prefixes, sleeper=sleeper))
+            discovered.extend(
+                get_games(
+                    day,
+                    client,
+                    config.id_prefixes,
+                    sleeper=sleeper,
+                    timeout=10.0,
+                    retries=1,
+                    deadline=deadline,
+                    skip_slugs=skip,
+                )
+            )
         except Exception:
             log.warning("schedule refresh failed date=%s", day.isoformat())
     try:
         if config.game_filter == "polymarket":
             events = cache.get(now, client, discovered, sleeper=sleeper)
-            allowed = {game.game_id for game in select_games(discovered, "polymarket", events)}
+            if not events:
+                log.warning("no polymarket events; watching every game on the slate")
+                allowed = {game.game_id for game in discovered}
+            else:
+                allowed = {game.game_id for game in select_games(discovered, "polymarket", events)}
         else:
             allowed = {game.game_id for game in select_games(discovered, config.game_filter)}
     except Exception:
-        log.warning("game filter failed; keeping games already stored")
-        allowed = set()
+        log.warning("game filter failed; watching every game on the slate")
+        allowed = {game.game_id for game in discovered}
     for game in discovered:
         known = store.get_game(game.game_id)
         if known is None and game.game_id not in allowed:
             continue
+        finished = is_final_status(game.game_status, game.game_status_text)
         if known is None:
-            # Do not stamp final_seen_utc = now. That made a book downloaded
-            # hours after the game look like the first post-game version.
             if discovered_too_late(game, started_at):
                 game.state = "DONE"
             else:
-                game.state = state_for(now, game.tip_utc, None, game.final_end_utc)
+                if finished:
+                    game.final_seen_utc = now
+                game.state = state_for(now, game.tip_utc, game.final_seen_utc, game.final_end_utc)
+        elif finished and known.final_seen_utc is None and not discovered_too_late(game, started_at):
+            game.final_seen_utc = now
         store.upsert_game(game)
 
 

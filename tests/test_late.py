@@ -176,8 +176,8 @@ def test_startup_still_watches_a_final_inside_six_hours_and_flags_it(tmp_path):
     books: list[str] = []
     client = _refresh(store, "2026-11-19T10:30:00Z", "2026-11-19T08:00:00Z", started, books)
     game = store.get_game("0022600258")
-    assert game.state == "WATCH_BOOK"
-    assert game.final_seen_utc is None
+    assert game.state == "FINAL_SEEN"
+    assert game.final_seen_utc == started
 
     class Clock:
         def now(self):

@@ -129,6 +129,7 @@ def fetch_events(client: httpx.Client, games: list[Game], *, sleeper=None) -> li
     kwargs = {"sleeper": sleeper} if sleeper else {}
     events: list[dict] = []
     seen: set[str] = set()
+    ok = False
     years = sorted({game.date_et[:4] for game in games})
     for year in years:
         params = {
@@ -138,13 +139,14 @@ def fetch_events(client: httpx.Client, games: list[Game], *, sleeper=None) -> li
             "series_slug": f"nba-{year}",
         }
         try:
-            response = request(client, "GET", GAMMA_EVENTS, params=params, **kwargs)
+            response = request(client, "GET", GAMMA_EVENTS, params=params, timeout=10.0, retries=1, **kwargs)
         except httpx.HTTPError as exc:
             log.warning("gamma series fetch failed: %s", type(exc).__name__)
             continue
         if response.status_code != 200:
             log.warning("gamma series HTTP %s", response.status_code)
             continue
+        ok = True
         for event in _as_events(response.json()):
             slug = event.get("slug") or ""
             if slug not in seen:
@@ -155,17 +157,22 @@ def fetch_events(client: httpx.Client, games: list[Game], *, sleeper=None) -> li
         if expected in seen:
             continue
         try:
-            response = request(client, "GET", GAMMA_EVENTS, params={"slug": expected}, **kwargs)
+            response = request(
+                client, "GET", GAMMA_EVENTS, params={"slug": expected}, timeout=10.0, retries=1, **kwargs
+            )
         except httpx.HTTPError as exc:
             log.warning("gamma slug fetch failed: %s", type(exc).__name__)
             continue
         if response.status_code != 200:
             continue
+        ok = True
         for event in _as_events(response.json()):
             slug = event.get("slug") or ""
             if slug and slug not in seen:
                 seen.add(slug)
                 events.append(event)
+    if not ok and not events:
+        raise RuntimeError("gamma unavailable")
     return events
 
 

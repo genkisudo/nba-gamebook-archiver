@@ -55,6 +55,7 @@ class ParsedBook:
     players: dict[str, dict] = field(default_factory=dict)
     teams: dict[str, dict] = field(default_factory=dict)
     score: dict[str, int] = field(default_factory=dict)
+    attendance: str | None = None
 
     def stats(self) -> dict[str, dict]:
         """Player lines plus team totals, the map diffs compare."""

@@ -53,13 +53,17 @@ def ingest_bytes(
     path = store.pdf_path(game, fetched_at, digest)
     path.write_bytes(body)
     kind = "unknown"
+    attendance = None
     try:
         parsed = parse_pdf(path)
         kind = parsed.kind
+        attendance = parsed.attendance
     except Exception:
         log.warning("parse failed game=%s sha=%s", game.game_id, digest[:12])
     meta = classify.pdf_metadata(path)
     stored_size = size if size is not None else len(body)
+    if note is None and attendance:
+        note = f"attendance: {attendance}"
     version = store.insert_version(
         game_id=game.game_id,
         url=url,
@@ -77,15 +81,14 @@ def ingest_bytes(
         source=source,
         note=note,
     )
-    if wayback is not None and source == "live":
-        try:
-            wayback.enqueue(version.id, url)
-            wayback.drain()
-        except Exception:
-            log.warning("wayback queue failed game=%s", game.game_id)
-        version = store.get_version(version.id)
     if kind == "final":
         _alert(store, game, version, now or fetched_at)
+        version = store.get_version(version.id)
+    if wayback is not None and source == "live" and kind == "final":
+        try:
+            wayback.enqueue(version.id, url)
+        except Exception:
+            log.warning("wayback queue failed game=%s", game.game_id)
     return "stored"
 
 
@@ -108,12 +111,16 @@ def ingest_text(
         return "duplicate"
     path = store.version_path(game, fetched_at, digest, ".txt")
     path.write_text(normalized, encoding="utf-8")
+    kind = "unknown"
+    attendance = None
     try:
         parsed = classify.parse_text(normalized)
         kind = parsed.kind
+        attendance = parsed.attendance
     except Exception:
         log.warning("text parse failed game=%s sha=%s", game.game_id, digest[:12])
-        kind = "unknown"
+    if note is None and attendance:
+        note = f"attendance: {attendance}"
     version = store.insert_version(
         game_id=game.game_id,
         url=url,
@@ -156,12 +163,17 @@ def ensure_matchup(store: Store, away: str, home: str, day: date) -> Game:
 
 
 def _lateness(game: Game, fetched_utc: str) -> tuple[bool, int]:
-    """Compare the fetch to a live final observation, else the box-score end time."""
-    anchor = game.final_seen_utc or game.final_end_utc
-    if anchor is None:
+    """Minutes after the earlier of the live observation and the box-score end."""
+    anchors = [moment for moment in (game.final_seen_utc, game.final_end_utc) if moment is not None]
+    if not anchors:
         return False, 0
-    gap_minutes = int((parse_utc(fetched_utc) - anchor).total_seconds() // 60)
+    gap_minutes = int((parse_utc(fetched_utc) - min(anchors)).total_seconds() // 60)
     return gap_minutes > late_capture_minutes(), max(gap_minutes, 0)
+
+
+def record_final_alert(store: Store, game: Game, version, when: datetime) -> None:
+    """Alert for a row that was stored as unknown and later classified final."""
+    _alert(store, game, version, when)
 
 
 def late_capture_minutes() -> int:

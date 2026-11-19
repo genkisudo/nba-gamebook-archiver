@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from datetime import datetime, timedelta
 
 import httpx
@@ -50,17 +51,23 @@ class Wayback:
             return
         self.store.enqueue_wayback(version_id, target_url, created_at=self.clock.now())
 
-    def drain(self) -> None:
+    def drain(self, budget_seconds: float = 2.0) -> None:
+        """Submit and poll queued saves without blocking the watcher for long."""
         if not self.enabled():
             return
+        deadline = time.monotonic() + budget_seconds
         now = self.clock.now()
         submitted = self.store.wayback_by_status("submitted")
         slots = self.max_concurrent - len(submitted)
         if slots > 0:
             for job in self.store.wayback_ready(now, slots):
+                if time.monotonic() >= deadline:
+                    return
                 if not self._submit(job):
                     break
         for job in self.store.wayback_by_status("submitted"):
+            if time.monotonic() >= deadline:
+                return
             self._poll(job)
 
     def _auth(self) -> dict:
@@ -85,7 +92,7 @@ class Wayback:
             self._defer(job, "network")
             return True
         if response.status_code == 429:
-            self._defer(job, "429", stop=True)
+            self._defer(job, "429")
             return False
         if response.status_code >= 400:
             self._defer(job, f"status {response.status_code}")
@@ -169,8 +176,7 @@ class Wayback:
                 job.version_id,
                 reason,
             )
-        if stop or reason == "429":
-            self.sleeper(delay)
+        # Never sleep here. next_try_utc is what the next drain honors, including 429.
 
 
 def snapshot_url(body: dict) -> str | None:
