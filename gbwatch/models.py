@@ -17,6 +17,7 @@ class Game:
     tip_utc: datetime
     game_status: int | None = None
     game_status_text: str = ""
+    period: int | None = None
     state: str = "SCHEDULED"
     final_seen_utc: datetime | None = None
     final_end_utc: datetime | None = None

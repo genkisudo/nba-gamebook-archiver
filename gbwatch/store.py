@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS games (
     tip_utc TEXT,
     game_status INTEGER,
     game_status_text TEXT,
+    period INTEGER,
     state TEXT NOT NULL,
     final_seen_utc TEXT,
     final_end_utc TEXT,
@@ -87,6 +88,7 @@ class Store:
         self._add_column("versions", "note", "TEXT")
         self._add_column("versions", "late_capture", "INTEGER NOT NULL DEFAULT 0")
         self._add_column("games", "final_end_utc", "TEXT")
+        self._add_column("games", "period", "INTEGER")
         self._add_column("wayback_jobs", "created_utc", "TEXT")
         self.conn.commit()
 
@@ -142,6 +144,8 @@ class Store:
         existing.tip_utc = game.tip_utc
         existing.game_status = game.game_status
         existing.game_status_text = game.game_status_text
+        if game.period is not None:
+            existing.period = game.period
         if game.final_end_utc is not None:
             existing.final_end_utc = game.final_end_utc
         if existing.final_seen_utc is None and game.final_seen_utc is not None:
@@ -154,9 +158,9 @@ class Store:
             """
             INSERT INTO games (
                 game_id, date_et, away, home, slug, book_url, tip_utc,
-                game_status, game_status_text, state, final_seen_utc, final_end_utc,
+                game_status, game_status_text, period, state, final_seen_utc, final_end_utc,
                 next_box_poll_utc, next_book_poll_utc, updated_utc
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(game_id) DO UPDATE SET
                 date_et=excluded.date_et,
                 away=excluded.away,
@@ -166,6 +170,7 @@ class Store:
                 tip_utc=excluded.tip_utc,
                 game_status=excluded.game_status,
                 game_status_text=excluded.game_status_text,
+                period=excluded.period,
                 state=excluded.state,
                 final_seen_utc=excluded.final_seen_utc,
                 final_end_utc=excluded.final_end_utc,
@@ -183,6 +188,7 @@ class Store:
                 _fmt(game.tip_utc),
                 game.game_status,
                 game.game_status_text,
+                game.period,
                 game.state,
                 _fmt(game.final_seen_utc),
                 _fmt(game.final_end_utc),
@@ -412,6 +418,7 @@ def _game(row: sqlite3.Row) -> Game:
         tip_utc=_parse(row["tip_utc"]) or parse_utc("1970-01-01T00:00:00Z"),
         game_status=row["game_status"],
         game_status_text=row["game_status_text"] or "",
+        period=row["period"],
         state=row["state"],
         final_seen_utc=_parse(row["final_seen_utc"]),
         final_end_utc=_parse(row["final_end_utc"]),

@@ -71,8 +71,18 @@ def parse_box_score(html: str, slug: str, slate: date) -> Game:
         tip_utc=tip,
         game_status=int(status) if status is not None else None,
         game_status_text=status_text,
+        period=_period_number(game.get("period")),
         final_end_utc=ended,
     )
+
+
+def _period_number(value) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _actual_end(payload: dict, game: dict) -> datetime | None:

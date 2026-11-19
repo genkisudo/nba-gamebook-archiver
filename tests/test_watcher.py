@@ -6,7 +6,7 @@ import httpx
 from gbwatch.models import Game
 from gbwatch.schedule import book_url
 from gbwatch.store import Store
-from gbwatch.watcher import Watcher, book_interval, state_for
+from gbwatch.watcher import Watcher, book_interval, box_interval, state_for
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 TIP = datetime(2026, 11, 19, 0, 0, tzinfo=timezone.utc)
@@ -58,7 +58,66 @@ def test_intervals_and_postponed_done():
     assert book_interval(final + timedelta(hours=12), TIP, final) is None
     assert state_for(TIP + timedelta(hours=6), TIP, None) == "DONE"
     assert book_interval(TIP - timedelta(seconds=1), TIP, None) is None
-    assert book_interval(TIP, TIP, None) == timedelta(seconds=60)
+    assert book_interval(TIP, TIP, None) is None
+    assert box_interval(TIP, TIP, None) == timedelta(minutes=10)
+    assert book_interval(TIP + timedelta(minutes=105), TIP, None) == timedelta(seconds=60)
+    assert box_interval(TIP + timedelta(minutes=105), TIP, None) == timedelta(seconds=60)
+    assert book_interval(TIP + timedelta(minutes=90), TIP, None, period=4) == timedelta(seconds=60)
+    # Listed tip is stale: still pre-game half an hour later, so tip+105 does not open the book.
+    assert book_interval(TIP + timedelta(minutes=110), TIP, None, status=1, status_text="10:30 pm ET") is None
+    # Final before tip+105 jumps straight to the fast book poll.
+    assert book_interval(TIP + timedelta(minutes=40), TIP, TIP + timedelta(minutes=40)) == timedelta(seconds=30)
+
+
+def test_quiet_window_skips_the_book_until_tip_plus_105(tmp_path, monkeypatch):
+    monkeypatch.delenv("IA_ACCESS", raising=False)
+    monkeypatch.delenv("IA_SECRET", raising=False)
+    books = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if "box-score" in url:
+            return httpx.Response(200, text=BOX.replace('"gameStatus":3', '"gameStatus":2').replace("Final", "Q2 8:00"))
+        books.append(request.method)
+        return httpx.Response(404)
+
+    store = Store(tmp_path)
+    store.save_game(_game())
+    clock = Clock(TIP + timedelta(minutes=20))
+    watcher = Watcher(store, httpx.Client(transport=httpx.MockTransport(handler)), clock, sleeper=lambda _s: None)
+    watcher.tick(clock.now())
+    assert books == []
+    clock.advance(10 * 60)
+    watcher.tick(clock.now())
+    assert books == []
+
+    clock = Clock(TIP + timedelta(minutes=105))
+    watcher2 = Watcher(store, httpx.Client(transport=httpx.MockTransport(handler)), clock, sleeper=lambda _s: None)
+    watcher2.tick(clock.now())
+    assert "HEAD" in books
+
+
+def test_quarter_four_opens_the_book_early(tmp_path, monkeypatch):
+    monkeypatch.delenv("IA_ACCESS", raising=False)
+    books = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "box-score" in str(request.url):
+            return httpx.Response(
+                200,
+                text=BOX.replace('"gameStatus":3', '"gameStatus":2,"period":4').replace("Final", "Q4 6:00"),
+            )
+        books.append(request.method)
+        return httpx.Response(404)
+
+    store = Store(tmp_path)
+    game = _game()
+    game.game_status_text = "Q4 6:00"
+    game.period = 4
+    store.save_game(game)
+    clock = Clock(TIP + timedelta(minutes=90))
+    Watcher(store, httpx.Client(transport=httpx.MockTransport(handler)), clock, sleeper=lambda _s: None).tick(clock.now())
+    assert books == ["HEAD"]
 
 
 def test_sequence_saves_first_final_then_stops(tmp_path, monkeypatch):

@@ -159,7 +159,7 @@ def test_early_partial_is_not_saved(tmp_path):
 
     store = Store(tmp_path)
     store.save_game(_live_game())
-    clock = Clock(datetime(2026, 11, 19, 0, 30, tzinfo=timezone.utc))
+    clock = Clock(datetime(2026, 11, 19, 1, 45, tzinfo=timezone.utc))
     Watcher(store, httpx.Client(transport=httpx.MockTransport(handler)), clock, sleeper=lambda _s: None).tick(clock.now())
     row = store.versions("0022600258")[0]
     assert row.kind == "in_game"
