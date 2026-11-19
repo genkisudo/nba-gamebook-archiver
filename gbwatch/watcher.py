@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import tempfile
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import httpx
 
@@ -12,7 +14,8 @@ from gbwatch.http import request
 from gbwatch.ingest import ingest_bytes
 from gbwatch.models import Game, Version
 from gbwatch.schedule import BOX_URL, is_final_status, parse_box_score
-from gbwatch.store import Store
+from gbwatch.store import Store, sha256_bytes
+from gbwatch.timeutil import format_utc
 from gbwatch.wayback import Wayback
 
 log = logging.getLogger("gbwatch.watcher")
@@ -67,14 +70,10 @@ def book_interval(
         if now < tip or now >= tip + timedelta(hours=6):
             return None
         return timedelta(seconds=60)
-    elapsed = now - anchor
-    if elapsed >= timedelta(hours=12):
+    if now >= anchor + timedelta(hours=12):
         return None
-    if elapsed < timedelta(minutes=30):
-        return timedelta(seconds=30)
-    if elapsed < timedelta(hours=3):
-        return timedelta(seconds=60)
-    return timedelta(minutes=15)
+    # Stay on the fast interval until the first final PDF is stored.
+    return timedelta(seconds=30)
 
 
 def box_interval(
@@ -188,9 +187,10 @@ class Watcher:
                 game.next_book_poll_utc = now + self._backoff(game.game_id, "book")
                 log.warning("book poll failed game=%s", game.game_id)
             else:
-                interval = book_interval(now, game.tip_utc, game.final_seen_utc, game.final_end_utc)
-                if interval is not None:
-                    game.next_book_poll_utc = now + interval
+                if game.state != "DONE":
+                    interval = book_interval(now, game.tip_utc, game.final_seen_utc, game.final_end_utc)
+                    if interval is not None:
+                        game.next_book_poll_utc = now + interval
         self.store.save_game(game)
 
     def _poll_box(self, game: Game, now: datetime) -> None:
@@ -233,6 +233,36 @@ class Watcher:
             size = int(length) if length is not None else len(got.content)
         except ValueError:
             size = len(got.content)
+        if not got.content.startswith(b"%PDF"):
+            log.warning("book response is not a pdf game=%s", game.game_id)
+            return
+        digest = sha256_bytes(got.content)
+        existing = self.store.version_by_hash(game.game_id, digest)
+        if existing is not None:
+            if latest is not None and latest.sha256 == digest:
+                self.store.touch_validators(
+                    existing.id, headers.get("last-modified"), headers.get("etag"), size
+                )
+            if existing.kind == "final":
+                game.state = "DONE"
+            return
+        kind = self._kind(got.content)
+        if kind != "final":
+            # Remember the validators so the next HEAD can skip a re-download.
+            # The partial itself is not kept.
+            self.store.insert_version(
+                game_id=game.game_id,
+                url=game.book_url,
+                fetched_utc=format_utc(now),
+                last_modified=headers.get("last-modified"),
+                etag=headers.get("etag"),
+                size=size,
+                sha256=digest,
+                kind=kind if kind in {"in_game", "unknown"} else "in_game",
+                path="",
+                source="live",
+            )
+            return
         ingest_bytes(
             self.store,
             game,
@@ -247,6 +277,20 @@ class Watcher:
             parse_pdf=self.parse_pdf,
             now=now,
         )
+        game.state = "DONE"
+
+    def _kind(self, body: bytes) -> str:
+        handle = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        path = Path(handle.name)
+        try:
+            handle.write(body)
+            handle.close()
+            return self.parse_pdf(path).kind
+        except Exception:
+            log.warning("book parse failed")
+            return "unknown"
+        finally:
+            path.unlink(missing_ok=True)
 
     def _backoff(self, game_id: str, kind: str) -> timedelta:
         count = self._fail.get((game_id, kind), 0) + 1

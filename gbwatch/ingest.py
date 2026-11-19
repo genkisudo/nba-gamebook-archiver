@@ -5,12 +5,10 @@ from __future__ import annotations
 import logging
 import os
 from datetime import date, datetime
-from pathlib import Path
 
 from gbwatch import classify
-from gbwatch.diff import diff_stats
 from gbwatch.models import Game
-from gbwatch.notify import emit_diff, emit_first_final, emit_late_first_capture
+from gbwatch.notify import emit_first_final, emit_late_first_capture
 from gbwatch.schedule import book_url
 from gbwatch.store import Store, sha256_bytes
 from gbwatch.timeutil import ET, format_utc, parse_utc
@@ -87,7 +85,7 @@ def ingest_bytes(
             log.warning("wayback queue failed game=%s", game.game_id)
         version = store.get_version(version.id)
     if kind == "final":
-        _alert(store, game, version, parse_pdf, now or fetched_at)
+        _alert(store, game, version, now or fetched_at)
     return "stored"
 
 
@@ -134,7 +132,7 @@ def ingest_text(
         note=note,
     )
     if kind == "final":
-        _alert(store, game, version, classify.parse_pdf, now or fetched_at)
+        _alert(store, game, version, now or fetched_at)
     return "stored"
 
 
@@ -166,12 +164,6 @@ def _lateness(game: Game, fetched_utc: str) -> tuple[bool, int]:
     return gap_minutes > late_capture_minutes(), max(gap_minutes, 0)
 
 
-def _stats_of(path: Path, parse_pdf) -> dict:
-    if path.suffix.lower() == ".txt":
-        return classify.parse_text(path.read_text(encoding="utf-8")).stats()
-    return parse_pdf(path).stats()
-
-
 def late_capture_minutes() -> int:
     """How long after the final a first book can arrive and still count as on time."""
     raw = os.environ.get("LATE_CAPTURE_MINUTES", "20").strip()
@@ -182,7 +174,7 @@ def late_capture_minutes() -> int:
     return value if value >= 0 else 20
 
 
-def _alert(store: Store, game: Game, version, parse_pdf, now: datetime) -> None:
+def _alert(store: Store, game: Game, version, now: datetime) -> None:
     finals = [item for item in store.versions(game.game_id) if item.kind == "final"]
     if not finals:
         return
@@ -195,14 +187,3 @@ def _alert(store: Store, game: Game, version, parse_pdf, now: datetime) -> None:
             emit_late_first_capture(store, game, version, created, gap_minutes)
         else:
             emit_first_final(store, game, version, created)
-        return
-    first = finals[0]
-    try:
-        old = _stats_of(Path(first.path), parse_pdf)
-        new = _stats_of(Path(version.path), parse_pdf)
-    except Exception:
-        log.warning("diff parse failed game=%s", game.game_id)
-        return
-    changes = diff_stats(old, new)
-    if changes:
-        emit_diff(store, game, first, version, changes, created)

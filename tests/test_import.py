@@ -112,13 +112,5 @@ def test_text_then_pdf_first_final_is_walter_st3(tmp_path, monkeypatch, capsys):
 
     assert main(["alerts", "--since", "0"]) == 0
     alerts = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
-    assert [alert["type"] for alert in alerts] == ["first_final", "diff"]
-    assert alerts[0]["diffs"] == []
-    assert alerts[0]["sha256"] != alerts[1]["sha256"]
-    walter = [row for row in alerts[1]["diffs"] if row["player"] == "Ja'Kobe Walter" and row["stat"] == "ST"]
-    assert walter == [{"player": "Ja'Kobe Walter", "stat": "ST", "old": 3, "new": 2}]
-    # The synthetic team total is the only other stat change in that one alert.
-    assert alerts[1]["diffs"] == [
-        {"player": "Ja'Kobe Walter", "stat": "ST", "old": 3, "new": 2},
-        {"player": "TORONTO RAPTORS total", "stat": "ST", "old": 9, "new": 8},
-    ]
+    assert [alert["type"] for alert in alerts] == ["first_final"]
+    assert alerts[0]["first_final_fetched_utc"] == "2026-11-19T03:09:00Z"

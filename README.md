@@ -34,7 +34,7 @@ export GAME_FILTER=polymarket   # polymarket | all | comma-separated game ids
 gbwatch backfill 2026-11-18     # Wayback CDX, then wayback/available
 gbwatch show 0022600258
 gbwatch show MEMCLE 2026-11-18
-gbwatch diff 0022600258
+gbwatch diff 0022600258          # manual stat compare of stored finals
 gbwatch alerts --since 0
 gbwatch ack 1
 gbwatch summary 2026-11-18
@@ -62,7 +62,7 @@ Put `IA_ACCESS` and `IA_SECRET` in `gbwatch.env` if you use systemd. Do not comm
 - SQLite at `data/gbwatch.sqlite` (games, versions, alerts, wayback jobs)
 - `data/alerts.jsonl`, one JSON object per line
 
-Alerts fire for the first `final` book and for each later `final` whose stat table differs from that first one. `gbwatch alerts` prints alerts that have not been `ack`ed. `gbwatch show` prints the first final's fetch time, server `Last-Modified`, PDF `CreationDate`, sha256, Wayback URL, and diffs for every later final.
+The live watcher stores one book per game: the first `final`. In-game copies are checked with HEAD and are not written to disk. Once that final is stored and a Wayback save is queued, the game is `DONE` and polling stops. Alerts are `first_final` or `late_first_capture`. `gbwatch alerts` prints alerts that have not been `ack`ed. `gbwatch show` prints the first final's fetch time, server `Last-Modified`, PDF `CreationDate`, sha256, Wayback URL, and source. `gbwatch diff` compares later imported or backfilled finals against that first one.
 
 Timestamps are UTC. `show` also prints Europe/Madrid and America/Mexico_City.
 
@@ -85,4 +85,4 @@ The suite is offline: HTTP is faked, the clock is faked, and the PDFs under `tes
 - Player-prop questions on Gamma say `3-Pointers Made` as well as the `3PM` form in the spec. Both count.
 - Wayback jobs are queued (at most 10 submitted at once) and retried with backoff on HTTP 429. A Save Page Now failure leaves the local PDF in place.
 - Backfill stores CDX captures with `source=wayback` and `fetched_utc` set to the capture time, oldest first, so the earliest final stays the first final.
-- `gbwatch import` stores a PDF or pdftotext-style text from another system (`--source otb`, `wayback`, or `manual`). Text versions are hashed from normalized text (LF, trimmed lines) and classified with the same parser. First-final selection and diffs compare parsed stats, so a text capture and a later PDF of the same game diff against each other. `show` prints each version's source.
+- `gbwatch import` stores a PDF or pdftotext-style text from another system (`--source otb`, `wayback`, or `manual`). Text versions are hashed from normalized text (LF, trimmed lines). Among imported and backfilled copies, the earliest `final` by fetch time is the first final. `show` prints each version's source.

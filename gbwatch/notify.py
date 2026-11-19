@@ -23,19 +23,6 @@ def emit_late_first_capture(
     return store.add_alert(payload)
 
 
-def emit_diff(store: Store, game: Game, first: Version, version: Version, diffs, created_utc: str) -> dict:
-    return store.add_alert(
-        _base(
-            game,
-            version,
-            "diff",
-            created_utc,
-            first.fetched_utc,
-            [change.as_dict() for change in diffs],
-        )
-    )
-
-
 def _base(game: Game, version: Version, alert_type: str, created_utc: str, first_fetched: str, diffs: list) -> dict:
     return {
         "created_utc": created_utc,
@@ -127,15 +114,15 @@ def render_summary(store: Store, date_et: str) -> str:
         lines.append("No games stored for this date.")
         lines.append("")
         return "\n".join(lines)
-    lines.append("| Matchup | Game ID | State | Versions | First final (UTC) | Diff alerts |")
+    lines.append("| Matchup | Game ID | State | Versions | First final (UTC) | Late |")
     lines.append("| --- | --- | --- | --- | --- | --- |")
     for game in games:
         versions = store.versions(game.game_id)
         finals = [version for version in versions if version.kind == "final"]
         first = finals[0].fetched_utc if finals else ""
-        diffs = store.alert_count(game.game_id, "diff")
+        late = "yes" if finals and finals[0].late_capture else ""
         lines.append(
-            f"| {game.matchup} | {game.game_id} | {game.state} | {len(versions)} | {first} | {diffs} |"
+            f"| {game.matchup} | {game.game_id} | {game.state} | {len(versions)} | {first} | {late} |"
         )
     lines.append("")
     return "\n".join(lines)

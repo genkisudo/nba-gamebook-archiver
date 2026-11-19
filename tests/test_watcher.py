@@ -1,4 +1,3 @@
-import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -10,7 +9,6 @@ from gbwatch.store import Store
 from gbwatch.watcher import Watcher, book_interval, state_for
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
-MARKER = b"\n%GBWATCH-CORRECTED\n"
 TIP = datetime(2026, 11, 19, 0, 0, tzinfo=timezone.utc)
 BOX = """
 <script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"game":{
@@ -47,19 +45,6 @@ def _game():
     )
 
 
-def _parse_with_correction(path):
-    from gbwatch.classify import parse_pdf
-
-    raw = Path(path).read_bytes()
-    if raw.endswith(MARKER):
-        clean = Path(path).with_suffix(".clean.pdf")
-        clean.write_bytes(raw[: -len(MARKER)])
-        parsed = parse_pdf(clean)
-        parsed.players["Cedric Coward"]["PTS"] = 21
-        return parsed
-    return parse_pdf(path)
-
-
 def test_intervals_and_postponed_done():
     final = TIP + timedelta(hours=2)
     assert state_for(TIP - timedelta(minutes=11), TIP, None) == "SCHEDULED"
@@ -67,8 +52,8 @@ def test_intervals_and_postponed_done():
     assert state_for(final, TIP, final) == "FINAL_SEEN"
     assert book_interval(final, TIP, final) == timedelta(seconds=30)
     assert state_for(final + timedelta(minutes=30), TIP, final) == "WATCH_BOOK"
-    assert book_interval(final + timedelta(minutes=30), TIP, final) == timedelta(seconds=60)
-    assert book_interval(final + timedelta(hours=3), TIP, final) == timedelta(minutes=15)
+    assert book_interval(final + timedelta(minutes=30), TIP, final) == timedelta(seconds=30)
+    assert book_interval(final + timedelta(hours=3), TIP, final) == timedelta(seconds=30)
     assert state_for(final + timedelta(hours=12), TIP, final) == "DONE"
     assert book_interval(final + timedelta(hours=12), TIP, final) is None
     assert state_for(TIP + timedelta(hours=6), TIP, None) == "DONE"
@@ -76,19 +61,16 @@ def test_intervals_and_postponed_done():
     assert book_interval(TIP, TIP, None) == timedelta(seconds=60)
 
 
-def test_sequence_first_final_one_diff_dedupe_and_restart(tmp_path, monkeypatch):
+def test_sequence_saves_first_final_then_stops(tmp_path, monkeypatch):
     monkeypatch.delenv("IA_ACCESS", raising=False)
     monkeypatch.delenv("IA_SECRET", raising=False)
     partial = (FIXTURES / "MEMCLE_1Q_partial.pdf").read_bytes()
     final = (FIXTURES / "MEMCLE_final.pdf").read_bytes()
-    corrected = final + MARKER
     script = [
         {"status": 404},
         {"status": 200, "etag": "partial", "lm": "t1", "body": partial},
         {"status": 200, "etag": "final", "lm": "t2", "body": final},
-        {"status": 200, "etag": "corrected", "lm": "t3", "body": corrected},
-        {"status": 200, "etag": "corrected-again", "lm": "t4", "body": corrected},
-        {"status": 200, "etag": "corrected-again", "lm": "t4", "body": corrected},
+        {"status": 200, "etag": "corrected", "lm": "t3", "body": final + b"\n%later\n"},
     ]
     calls = {"head": 0, "get": 0, "urls": []}
 
@@ -122,48 +104,44 @@ def test_sequence_first_final_one_diff_dedupe_and_restart(tmp_path, monkeypatch)
     store = Store(tmp_path)
     store.save_game(_game())
     clock = Clock(datetime(2026, 11, 19, 1, 0, tzinfo=timezone.utc))
-    watcher = Watcher(store, client, clock, sleeper=lambda _s: None, parse_pdf=_parse_with_correction)
+    watcher = Watcher(store, client, clock, sleeper=lambda _s: None)
 
     watcher.tick(clock.now())
     assert store.versions("0022600258") == []
 
-    for _ in range(5):
-        clock.advance(30)
-        watcher.tick(clock.now())
+    clock.advance(30)
+    watcher.tick(clock.now())
+    partial_rows = store.versions("0022600258")
+    assert [row.kind for row in partial_rows] == ["in_game"]
+    assert partial_rows[0].path == ""
+    assert list(tmp_path.rglob("*.pdf")) == []
 
+    clock.advance(30)
+    watcher.tick(clock.now())
     versions = store.versions("0022600258")
-    assert [version.kind for version in versions] == ["in_game", "final", "final"]
-    assert len({version.sha256 for version in versions}) == 3
-    assert calls["get"] == 4  # partial, final, corrected, same-bytes reconfirm
-    assert calls["head"] == 6
-    # The sixth head used the same validators, so it did not GET.
-    assert calls["urls"].count("GET") == 4
-
+    assert [row.kind for row in versions] == ["in_game", "final"]
+    assert versions[1].path.endswith(".pdf")
+    assert Path(versions[1].path).is_file()
     alerts = store.unread_alerts(0)
-    assert [alert["type"] for alert in alerts] == ["first_final", "diff"]
-    assert alerts[0]["diffs"] == []
+    assert [alert["type"] for alert in alerts] == ["first_final"]
     assert alerts[0]["matchup"] == "MEM@CLE"
-    assert alerts[0]["first_final_fetched_utc"] == versions[1].fetched_utc
-    assert alerts[1]["diffs"] == [
-        {"player": "Cedric Coward", "stat": "PTS", "old": 20, "new": 21}
-    ]
-    assert alerts[1]["first_final_fetched_utc"] == versions[1].fetched_utc
-    assert alerts[1]["sha256"] == versions[2].sha256
+    assert alerts[0]["sha256"] == versions[1].sha256
+    assert store.get_game("0022600258").state == "DONE"
+    gets_after_final = calls["get"]
 
-    # Restart from the same SQLite file. Identical validators must not store or alert.
+    # A later book must not be fetched or alerted. Restart stays stopped.
+    clock.advance(30)
+    watcher.tick(clock.now())
     store.close()
     store2 = Store(tmp_path)
-    watcher2 = Watcher(store2, client, clock, sleeper=lambda _s: None, parse_pdf=_parse_with_correction)
+    watcher2 = Watcher(store2, client, clock, sleeper=lambda _s: None)
     clock.advance(30)
     watcher2.tick(clock.now())
-    assert len(store2.versions("0022600258")) == 3
-    assert [alert["type"] for alert in store2.unread_alerts(0)] == ["first_final", "diff"]
-    game = store2.get_game("0022600258")
-    assert game.state == "FINAL_SEEN"
-    assert game.final_seen_utc == datetime(2026, 11, 19, 1, 0, tzinfo=timezone.utc)
-    lines = (tmp_path / "alerts.jsonl").read_text().strip().splitlines()
-    assert len(lines) == 2
-    assert json.loads(lines[1])["type"] == "diff"
+    assert calls["get"] == gets_after_final
+    assert [row.kind for row in store2.versions("0022600258")] == ["in_game", "final"]
+    assert [alert["type"] for alert in store2.unread_alerts(0)] == ["first_final"]
+    assert store2.get_game("0022600258").state == "DONE"
+    assert (tmp_path / "alerts.jsonl").read_text().count("\n") == 1
 
 
 def test_postponed_game_stops_without_requests(tmp_path):

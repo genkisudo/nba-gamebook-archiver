@@ -191,4 +191,5 @@ def test_startup_still_watches_a_final_inside_six_hours_and_flags_it(tmp_path):
     alert = store.unread_alerts(0)[0]
     assert alert["type"] == "late_first_capture"
     assert alert["gap_minutes"] == 349
+    assert store.get_game("0022600258").state == "DONE"
     assert "LATE: not proof of first book" in render_show(store, store.get_game("0022600258"))
