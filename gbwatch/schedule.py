@@ -67,7 +67,30 @@ def parse_box_score(html: str, slug: str, slate: date) -> Game:
         tip_utc=tip,
         game_status=int(status) if status is not None else None,
         game_status_text=status_text,
+        final_end_utc=_actual_end(payload, game),
     )
+
+
+def _actual_end(payload: dict, game: dict) -> datetime | None:
+    """Box-score end instant. Live pages put it on blueprintReport.game_header."""
+    header = (
+        (payload.get("props") or {})
+        .get("pageProps", {})
+        .get("blueprintReport", {})
+        or {}
+    )
+    if isinstance(header, dict):
+        header = header.get("game_header") or {}
+    raw = None
+    if isinstance(header, dict):
+        raw = header.get("actualEndTimeUTC")
+    raw = raw or game.get("actualEndTimeUTC")
+    if not raw:
+        return None
+    try:
+        return parse_utc(str(raw))
+    except ValueError:
+        return None
 
 
 def _slate_date(game_et: str | None, tip: datetime, slate: date) -> date:

@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import date, datetime
 from pathlib import Path
 
 from gbwatch import classify
 from gbwatch.diff import diff_stats
 from gbwatch.models import Game
-from gbwatch.notify import emit_diff, emit_first_final
+from gbwatch.notify import emit_diff, emit_first_final, emit_late_first_capture
 from gbwatch.schedule import book_url
 from gbwatch.store import Store, sha256_bytes
-from gbwatch.timeutil import ET, format_utc
+from gbwatch.timeutil import ET, format_utc, parse_utc
 
 log = logging.getLogger("gbwatch.ingest")
 
@@ -156,10 +157,29 @@ def ensure_matchup(store: Store, away: str, home: str, day: date) -> Game:
     return game
 
 
+def _lateness(game: Game, fetched_utc: str) -> tuple[bool, int]:
+    """Compare the fetch to a live final observation, else the box-score end time."""
+    anchor = game.final_seen_utc or game.final_end_utc
+    if anchor is None:
+        return False, 0
+    gap_minutes = int((parse_utc(fetched_utc) - anchor).total_seconds() // 60)
+    return gap_minutes > late_capture_minutes(), max(gap_minutes, 0)
+
+
 def _stats_of(path: Path, parse_pdf) -> dict:
     if path.suffix.lower() == ".txt":
         return classify.parse_text(path.read_text(encoding="utf-8")).stats()
     return parse_pdf(path).stats()
+
+
+def late_capture_minutes() -> int:
+    """How long after the final a first book can arrive and still count as on time."""
+    raw = os.environ.get("LATE_CAPTURE_MINUTES", "20").strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        return 20
+    return value if value >= 0 else 20
 
 
 def _alert(store: Store, game: Game, version, parse_pdf, now: datetime) -> None:
@@ -168,7 +188,13 @@ def _alert(store: Store, game: Game, version, parse_pdf, now: datetime) -> None:
         return
     created = format_utc(now)
     if finals[0].id == version.id:
-        emit_first_final(store, game, version, created)
+        late, gap_minutes = _lateness(game, version.fetched_utc)
+        if late:
+            store.set_late_capture(version.id)
+            version = store.get_version(version.id)
+            emit_late_first_capture(store, game, version, created, gap_minutes)
+        else:
+            emit_first_final(store, game, version, created)
         return
     first = finals[0]
     try:

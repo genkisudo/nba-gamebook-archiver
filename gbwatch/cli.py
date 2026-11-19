@@ -19,10 +19,10 @@ from gbwatch.http import make_client
 from gbwatch.notify import render_diff, render_show, render_summary
 from gbwatch.polymarket import EventCache, select_games
 from gbwatch.redact import install_redaction
-from gbwatch.schedule import get_games, is_final_status
+from gbwatch.schedule import get_games
 from gbwatch.store import Store
 from gbwatch.timeutil import et_calendar, parse_utc, utcnow
-from gbwatch.watcher import Watcher, state_for
+from gbwatch.watcher import Watcher, discovered_too_late, state_for
 
 log = logging.getLogger("gbwatch")
 
@@ -128,12 +128,13 @@ def serve(config, *, client: httpx.Client | None = None, clock=None, sleep=time.
     watcher = Watcher(store, client, clock, sleeper=http_sleeper)
     cache = EventCache()
     schedule_at: datetime | None = None
+    started_at = clock.now()
     ticks = 0
     try:
         while True:
             now = clock.now()
             if schedule_at is None or (now - schedule_at) >= timedelta(minutes=5):
-                _refresh_schedule(store, client, config, cache, now, watcher.sleeper)
+                _refresh_schedule(store, client, config, cache, now, watcher.sleeper, started_at)
                 schedule_at = now
             watcher.tick(now)
             ticks += 1
@@ -147,7 +148,7 @@ def serve(config, *, client: httpx.Client | None = None, clock=None, sleep=time.
             client.close()
 
 
-def _refresh_schedule(store, client, config, cache: EventCache, now: datetime, sleeper) -> None:
+def _refresh_schedule(store, client, config, cache: EventCache, now: datetime, sleeper, started_at: datetime) -> None:
     today = et_calendar(now)
     discovered = []
     for day in (today, today - timedelta(days=1)):
@@ -169,9 +170,12 @@ def _refresh_schedule(store, client, config, cache: EventCache, now: datetime, s
         if known is None and game.game_id not in allowed:
             continue
         if known is None:
-            if is_final_status(game.game_status, game.game_status_text):
-                game.final_seen_utc = now
-            game.state = state_for(now, game.tip_utc, game.final_seen_utc)
+            # Do not stamp final_seen_utc = now. That made a book downloaded
+            # hours after the game look like the first post-game version.
+            if discovered_too_late(game, started_at):
+                game.state = "DONE"
+            else:
+                game.state = state_for(now, game.tip_utc, None, game.final_end_utc)
         store.upsert_game(game)
 
 

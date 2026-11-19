@@ -79,6 +79,8 @@ The suite is offline: HTTP is faked, the clock is faked, and the PDFs under `tes
 - A book is `in_game` when it contains `Attendance: Not Yet Counted`, or when it has a quarter/overtime header and no final score. A final score is a `FINAL BOX` page or a score table that includes periods 1–4. Later quarter pages inside a finished book do not flip it back to `in_game`. Only the `FINAL BOX` table is parsed for finals.
 - `gameEt` on nba.com is an Eastern clock time with a `Z` suffix. The slate date is that calendar date. `gameTimeUTC` is the real tip.
 - PDF CreationDate and ModDate come from `pdfinfo -isodates`, which keeps the file's offset, and are stored as UTC. Plain `pdfinfo` prints those instants in the process timezone.
+- A first `final` fetched more than `LATE_CAPTURE_MINUTES` (default 20) after the live final observation, or after the box score's `actualEndTimeUTC` when the final was not seen live, is stored as `final` with `late_capture=1` and alert type `late_first_capture`. `show` labels it `LATE: not proof of first book`. Games whose final was more than 6 hours before the daemon started are not watched; `backfill` can still archive them.
+- Wayback network failures back off up to 30 minutes and are marked failed after 24 hours. One warning is logged when the job starts failing, and one when it gives up.
 - Gamma's `tag_slug=nba&closed=false` listing is futures-first, so the client also sends `series_slug=nba-{year}` and, if needed, looks up `nba-{away}-{home}-{date}`.
 - Player-prop questions on Gamma say `3-Pointers Made` as well as the `3PM` form in the spec. Both count.
 - Wayback jobs are queued (at most 10 submitted at once) and retried with backoff on HTTP 429. A Save Page Now failure leaves the local PDF in place.

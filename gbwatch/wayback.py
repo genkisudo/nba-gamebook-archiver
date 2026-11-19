@@ -13,7 +13,11 @@ import httpx
 
 from gbwatch.models import WaybackJob
 from gbwatch.store import Store
-from gbwatch.timeutil import format_utc
+from gbwatch.timeutil import format_utc, parse_utc
+
+# Network failures back off up to half an hour and stop after a day.
+MAX_BACKOFF_SECONDS = 30 * 60
+GIVE_UP_AFTER = timedelta(hours=24)
 
 log = logging.getLogger("gbwatch.wayback")
 
@@ -30,14 +34,12 @@ class Wayback:
         *,
         sleeper=None,
         max_concurrent: int = 10,
-        max_attempts: int = 5,
     ):
         self.store = store
         self.client = client
         self.clock = clock
         self.sleeper = sleeper or (lambda _seconds: None)
         self.max_concurrent = max_concurrent
-        self.max_attempts = max_attempts
 
     def enabled(self) -> bool:
         return bool(os.environ.get("IA_ACCESS") and os.environ.get("IA_SECRET"))
@@ -46,7 +48,7 @@ class Wayback:
         if not self.enabled():
             log.info("wayback skipped: IA credentials not set")
             return
-        self.store.enqueue_wayback(version_id, target_url)
+        self.store.enqueue_wayback(version_id, target_url, created_at=self.clock.now())
 
     def drain(self) -> None:
         if not self.enabled():
@@ -142,8 +144,8 @@ class Wayback:
 
     def _defer(self, job: WaybackJob, reason: str, stop: bool = False) -> None:
         attempts = job.attempts + 1
-        delay = min(900, 5 * (2 ** min(attempts, 8)))
-        if attempts >= self.max_attempts:
+        created = parse_utc(job.created_utc) if job.created_utc else self.clock.now()
+        if self.clock.now() - created >= GIVE_UP_AFTER:
             self.store.update_wayback_job(
                 job.id,
                 status="failed",
@@ -152,6 +154,7 @@ class Wayback:
             )
             log.warning("wayback gave up version=%s reason=%s", job.version_id, reason)
             return
+        delay = min(MAX_BACKOFF_SECONDS, 5 * (2 ** min(attempts - 1, 12)))
         next_try = self.clock.now() + timedelta(seconds=delay)
         self.store.update_wayback_job(
             job.id,
@@ -160,7 +163,12 @@ class Wayback:
             next_try_utc=format_utc(next_try),
             last_error=reason[:200],
         )
-        log.warning("wayback retry version=%s reason=%s", job.version_id, reason)
+        if attempts == 1:
+            log.warning(
+                "wayback unreachable version=%s reason=%s; retrying for up to 24h",
+                job.version_id,
+                reason,
+            )
         if stop or reason == "429":
             self.sleeper(delay)
 

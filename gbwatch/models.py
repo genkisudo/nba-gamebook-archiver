@@ -19,6 +19,7 @@ class Game:
     game_status_text: str = ""
     state: str = "SCHEDULED"
     final_seen_utc: datetime | None = None
+    final_end_utc: datetime | None = None
     next_box_poll_utc: datetime | None = None
     next_book_poll_utc: datetime | None = None
 
@@ -45,6 +46,7 @@ class Version:
     wayback_url: str | None
     source: str
     note: str | None = None
+    late_capture: int = 0
 
 
 @dataclass
@@ -73,3 +75,4 @@ class WaybackJob:
     next_try_utc: str | None
     wayback_url: str | None
     last_error: str | None
+    created_utc: str | None = None

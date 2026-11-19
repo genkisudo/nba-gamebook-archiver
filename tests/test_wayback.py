@@ -112,18 +112,70 @@ def test_wayback_failure_does_not_raise_and_429_backs_off(tmp_path, monkeypatch)
         httpx.Client(transport=httpx.MockTransport(handler)),
         clock,
         sleeper=lambda seconds: clock.slept.append(seconds),
-        max_attempts=2,
     )
     wayback.enqueue(version.id, game.book_url)
     wayback.drain()
     assert clock.slept  # backed off on 429
     assert store.get_version(version.id).wayback_url is None
-    # A later failure past max_attempts marks the job failed and still does not raise.
-    clock.now_at = datetime(2026, 11, 19, 4, 0, tzinfo=timezone.utc)
+    assert store.wayback_by_status("failed") == []
+    # Still pending an hour later. The job is abandoned 24h after it was queued.
+    clock.now_at = datetime(2026, 11, 20, 3, 0, 1, tzinfo=timezone.utc)
     wayback.drain()
     jobs = store.wayback_by_status("failed")
     assert len(jobs) == 1
     assert SECRET not in (jobs[0].last_error or "")
+
+
+def test_network_retries_back_off_and_log_once(tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("IA_ACCESS", ACCESS)
+    monkeypatch.setenv("IA_SECRET", SECRET)
+    caplog.set_level("WARNING")
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("tls handshake failed")
+
+    store = Store(tmp_path)
+    game = _game()
+    store.save_game(game)
+    version = store.insert_version(
+        game_id=game.game_id,
+        url=game.book_url,
+        fetched_utc="2026-11-19T03:11:41Z",
+        sha256="abc",
+        kind="final",
+        path="/tmp/x.pdf",
+        source="live",
+    )
+    clock = Clock()
+    wayback = Wayback(store, httpx.Client(transport=httpx.MockTransport(handler)), clock, sleeper=lambda _s: None)
+    wayback.enqueue(version.id, game.book_url)
+    wayback.drain()
+    first = store.wayback_by_status("pending")[0]
+    assert first.attempts == 1
+    assert first.next_try_utc == "2026-11-19T03:00:05Z"
+    warnings = [rec for rec in caplog.records if rec.levelname == "WARNING"]
+    assert len(warnings) == 1
+
+    delay = 5
+    for _ in range(12):
+        clock.now_at = clock.now_at + __import__("datetime").timedelta(seconds=delay)
+        wayback.drain()
+        pending = store.wayback_by_status("pending")
+        assert pending, "gave up before 24h"
+        gap = (
+            __import__("datetime").datetime.fromisoformat(pending[0].next_try_utc.replace("Z", "+00:00"))
+            - clock.now_at
+        ).total_seconds()
+        delay = gap
+        assert delay <= 30 * 60
+    assert store.wayback_by_status("pending")[0].attempts > 1
+    assert delay == 30 * 60
+    assert len([rec for rec in caplog.records if rec.levelname == "WARNING"]) == 1
+
+    clock.now_at = datetime(2026, 11, 20, 3, 0, 1, tzinfo=timezone.utc)
+    wayback.drain()
+    assert len(store.wayback_by_status("failed")) == 1
+    assert store.wayback_by_status("pending") == []
 
 
 def test_concurrent_cap(tmp_path, monkeypatch):

@@ -15,6 +15,14 @@ def emit_first_final(store: Store, game: Game, version: Version, created_utc: st
     return store.add_alert(_base(game, version, "first_final", created_utc, version.fetched_utc, []))
 
 
+def emit_late_first_capture(
+    store: Store, game: Game, version: Version, created_utc: str, gap_minutes: int
+) -> dict:
+    payload = _base(game, version, "late_first_capture", created_utc, version.fetched_utc, [])
+    payload["gap_minutes"] = gap_minutes
+    return store.add_alert(payload)
+
+
 def emit_diff(store: Store, game: Game, first: Version, version: Version, diffs, created_utc: str) -> dict:
     return store.add_alert(
         _base(
@@ -56,6 +64,8 @@ def render_show(store: Store, game: Game) -> str:
     else:
         first = finals[0]
         lines.append("first final:")
+        if first.late_capture:
+            lines.append("  LATE: not proof of first book")
         lines.append(f"  fetched_utc: {format_zones(parse_utc(first.fetched_utc))}")
         lines.append(f"  source: {first.source}")
         lines.append(f"  server Last-Modified: {first.last_modified}")
