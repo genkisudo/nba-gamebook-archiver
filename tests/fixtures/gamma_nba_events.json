@@ -1,0 +1,46 @@
+[
+  {
+    "id": "1312318",
+    "slug": "nba-mem-cle-2026-11-18",
+    "title": "Grizzlies vs. Cavaliers",
+    "eventDate": "2026-11-18",
+    "startTime": "2026-11-19T00:00:00Z",
+    "closed": true,
+    "markets": [
+      {
+        "question": "Grizzlies vs. Cavaliers",
+        "sportsMarketType": "moneyline",
+        "slug": "nba-mem-cle-2026-11-18"
+      },
+      {
+        "question": "Grizzlies vs. Cavaliers: O/U 236.5",
+        "sportsMarketType": "totals",
+        "slug": "nba-mem-cle-2026-11-18-total-236pt5"
+      },
+      {
+        "question": "Cedric Coward: Points O/U 16.5",
+        "sportsMarketType": "points",
+        "slug": "nba-mem-cle-2026-11-18-points-cedric-coward-16pt5"
+      },
+      {
+        "question": "Cam Spencer: 3-Pointers Made O/U 0.5",
+        "sportsMarketType": "threes",
+        "slug": "nba-mem-cle-2026-11-18-threes-cam-spencer-0pt5"
+      }
+    ]
+  },
+  {
+    "id": "478277",
+    "slug": "nba-2027-champion",
+    "title": "NBA: 2027 Champion",
+    "startTime": "2026-05-13T20:07:53.605766Z",
+    "closed": false,
+    "markets": [
+      {
+        "question": "Will Atlanta Hawks win the 2027 NBA Finals?",
+        "sportsMarketType": null,
+        "slug": "will-atlanta-hawks-win-the-2027-nba-finals"
+      }
+    ]
+  }
+]
