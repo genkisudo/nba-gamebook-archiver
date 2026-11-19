@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from gbwatch.classify import classify_kind, parse_pdf
+from gbwatch.classify import _pdfinfo_date, classify_kind, parse_pdf, pdf_metadata
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
@@ -38,11 +38,15 @@ def test_walter_coward_giannis_and_scores():
     assert mil.teams["MIAMI HEAT"]["PTS"] == 137
 
 
+def test_pdfinfo_iso_offset_converts_to_utc():
+    assert _pdfinfo_date("2026-11-19T03:11:41Z") == "2026-11-19T03:11:41Z"
+    assert _pdfinfo_date("2026-11-19T04:11:41+01:00") == "2026-11-19T03:11:41Z"
+    assert _pdfinfo_date("2026-11-18T22:11:41-05:00") == "2026-11-19T03:11:41Z"
+    assert _pdfinfo_date("Thu Nov 19 04:11:41 2026 CET") is None
+
+
 def test_pdf_timestamps():
     mem = parse_pdf(FIXTURES / "MEMCLE_final.pdf")
-    # parse_pdf doesn't return metadata; pdfinfo is checked via the helper.
-    from gbwatch.classify import pdf_metadata
-
     meta = pdf_metadata(FIXTURES / "MEMCLE_final.pdf")
     assert meta["pdf_created"] == "2026-11-19T03:11:41Z"
     assert meta["pages"] == 19

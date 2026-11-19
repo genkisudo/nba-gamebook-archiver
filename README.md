@@ -78,6 +78,7 @@ The suite is offline: HTTP is faked, the clock is faked, and the PDFs under `tes
 
 - A book is `in_game` when it contains `Attendance: Not Yet Counted`, or when it has a quarter/overtime header and no final score. A final score is a `FINAL BOX` page or a score table that includes periods 1–4. Later quarter pages inside a finished book do not flip it back to `in_game`. Only the `FINAL BOX` table is parsed for finals.
 - `gameEt` on nba.com is an Eastern clock time with a `Z` suffix. The slate date is that calendar date. `gameTimeUTC` is the real tip.
+- PDF CreationDate and ModDate come from `pdfinfo -isodates`, which keeps the file's offset, and are stored as UTC. Plain `pdfinfo` prints those instants in the process timezone.
 - Gamma's `tag_slug=nba&closed=false` listing is futures-first, so the client also sends `series_slug=nba-{year}` and, if needed, looks up `nba-{away}-{home}-{date}`.
 - Player-prop questions on Gamma say `3-Pointers Made` as well as the `3PM` form in the spec. Both count.
 - Wayback jobs are queued (at most 10 submitted at once) and retried with backoff on HTTP 429. A Save Page Now failure leaves the local PDF in place.

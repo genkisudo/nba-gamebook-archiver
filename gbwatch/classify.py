@@ -21,9 +21,6 @@ PLAYER_RE = re.compile(
 DNP_RE = re.compile(r"^\s*(\d{1,2})\s+(.+?)\s+(DNP|DND|NWT)\s*-\s*(.*?)\s*$")
 TOTAL_RE = re.compile(r"^\s{2,}(\d{1,3}:\d{2})\s+(-?\d.*)$")
 TEAM_RE = re.compile(r"^(VISITOR|HOME):\s+(.+?)\s+\(\d+-\d+\)\s*$")
-PDFINFO_DATE_RE = re.compile(
-    r"([A-Za-z]{3})\s+(\d{1,2})\s+(\d{2}:\d{2}:\d{2})\s+(\d{4})(?:\s+(\S+))?"
-)
 
 
 def classify_kind(text: str) -> str:
@@ -61,8 +58,18 @@ def pdftotext(path: Path) -> str:
 
 
 def pdf_metadata(path: Path) -> dict:
+    """Read page count and PDF dates.
+
+    `pdfinfo` without `-isodates` prints CreationDate in the process timezone
+    (CET on a Madrid box) and does not include a numeric offset. `-isodates`
+    keeps the PDF's own offset, so the result does not depend on TZ.
+    """
     try:
-        out = subprocess.check_output(["pdfinfo", str(path)], text=True, stderr=subprocess.DEVNULL)
+        out = subprocess.check_output(
+            ["pdfinfo", "-isodates", str(path)],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
     except (FileNotFoundError, subprocess.CalledProcessError):
         return {"pages": None, "pdf_created": None, "pdf_modified": None}
     pages = created = modified = None
@@ -80,20 +87,18 @@ def pdf_metadata(path: Path) -> dict:
 
 
 def _pdfinfo_date(text: str) -> str | None:
-    match = PDFINFO_DATE_RE.search(text)
-    if not match:
+    """Convert a pdfinfo -isodates value to UTC `YYYY-MM-DDTHH:MM:SSZ`."""
+    raw = text.strip()
+    if not raw:
         return None
-    month, day, clock, year, zone = match.groups()
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
     try:
-        parsed = datetime.strptime(f"{month} {int(day)} {clock} {year}", "%b %d %H:%M:%S %Y")
+        parsed = datetime.fromisoformat(raw)
     except ValueError:
         return None
-    zone = (zone or "UTC").upper()
-    if zone in {"UTC", "GMT", "Z"}:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    else:
-        # pdfinfo sometimes prints an offset. Unknown names stay UTC; the
-        # official books we see are already labeled UTC.
+    if parsed.tzinfo is None:
+        # An ISO string with no offset is not a local time. Do not apply TZ.
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
