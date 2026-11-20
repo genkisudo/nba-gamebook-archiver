@@ -6,6 +6,7 @@ import httpx
 
 from gbwatch.models import Game
 from gbwatch.polymarket import (
+    EventCache,
     event_has_player_prop,
     fetch_events,
     is_player_prop,
@@ -104,6 +105,63 @@ def test_title_match_when_slug_differs():
         }
     ]
     assert select_games([_game("ATL", "BOS", "1")], "polymarket", futures) == []
+
+
+def test_hornets_do_not_match_a_nets_game():
+    events = [
+        {
+            "slug": "charlotte-heat-night",
+            "title": "Hornets vs. Heat",
+            "eventDate": "2026-11-18",
+            "markets": [{"question": "LaMelo Ball: Points O/U 22.5"}],
+        }
+    ]
+    nets = _game("BKN", "MIA", "0022600999")
+    assert select_games([nets], "polymarket", events) == []
+    hornets = _game("CHA", "MIA", "0022601000")
+    assert [game.game_id for game in select_games([hornets], "polymarket", events)] == ["0022601000"]
+    real_nets = [
+        {
+            "slug": "nets-heat-night",
+            "title": "Nets vs. Heat",
+            "eventDate": "2026-11-18",
+            "markets": [{"question": "Cam Thomas: Points O/U 20.5"}],
+        }
+    ]
+    assert [game.game_id for game in select_games([nets], "polymarket", real_nets)] == ["0022600999"]
+
+
+def test_event_cache_fetches_a_new_slate_game_while_fresh():
+    now = datetime(2026, 11, 18, 18, tzinfo=timezone.utc)
+    first = _game("MEM", "CLE")
+    first.tip_utc = now + timedelta(hours=2)
+    second = _game("WAS", "TOR", "0022600263")
+    second.tip_utc = now + timedelta(hours=3)
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(dict(request.url.params))
+        slug = request.url.params.get("slug")
+        if slug:
+            return httpx.Response(200, json=[{"slug": slug, "title": slug, "markets": []}])
+        if request.url.params.get("series_slug") == "nba-2026":
+            return httpx.Response(
+                200, json=[{"slug": "nba-mem-cle-2026-11-18", "title": "Grizzlies vs. Cavaliers", "markets": []}]
+            )
+        return httpx.Response(404)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    cache = EventCache()
+    cache.get(now, client, [first], sleeper=lambda _s: None)
+    before = len(calls)
+    found = cache.get(now + timedelta(minutes=5), client, [first, second], sleeper=lambda _s: None)
+    assert len(calls) == before + 1
+    assert calls[-1].get("slug") == "nba-was-tor-2026-11-18"
+    assert "series_slug" not in calls[-1]
+    assert {event["slug"] for event in found} == {
+        "nba-mem-cle-2026-11-18",
+        "nba-was-tor-2026-11-18",
+    }
 
 
 def test_event_cache_ttl(monkeypatch):

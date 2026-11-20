@@ -36,9 +36,21 @@ def discovered_too_late(game: Game, started_at: datetime) -> bool:
     return started_at - game.final_end_utc > STARTUP_FINAL_CUTOFF
 
 
-def _final_anchor(final_seen: datetime | None, final_end: datetime | None) -> datetime | None:
-    """Live observation wins. Otherwise the box score's actual end time."""
-    return final_seen if final_seen is not None else final_end
+def _final_anchor(
+    final_seen: datetime | None,
+    final_end: datetime | None,
+    final_discovered: datetime | None = None,
+) -> datetime | None:
+    """Window anchor: live observation, else the box-score end, else discovery.
+
+    Discovery is only the 12h-window anchor when the other two are missing.
+    It is not a live observation of the final.
+    """
+    if final_seen is not None:
+        return final_seen
+    if final_end is not None:
+        return final_end
+    return final_discovered
 
 
 def state_for(
@@ -46,8 +58,9 @@ def state_for(
     tip: datetime,
     final_seen: datetime | None,
     final_end: datetime | None = None,
+    final_discovered: datetime | None = None,
 ) -> str:
-    anchor = _final_anchor(final_seen, final_end)
+    anchor = _final_anchor(final_seen, final_end, final_discovered)
     if anchor is not None:
         if now >= anchor + timedelta(hours=12):
             return "DONE"
@@ -112,9 +125,10 @@ def book_interval(
     status: int | None = None,
     status_text: str = "",
     period: int | None = None,
+    final_discovered: datetime | None = None,
 ) -> timedelta | None:
     """How long to wait after a book poll, or None when the book is not polled."""
-    anchor = _final_anchor(final_seen, final_end)
+    anchor = _final_anchor(final_seen, final_end, final_discovered)
     if anchor is not None or is_final_status(status, status_text):
         if anchor is not None and now >= anchor + timedelta(hours=12):
             return None
@@ -135,8 +149,9 @@ def box_interval(
     status: int | None = None,
     status_text: str = "",
     period: int | None = None,
+    final_discovered: datetime | None = None,
 ) -> timedelta | None:
-    if _final_anchor(final_seen, final_end) is not None or is_final_status(status, status_text):
+    if _final_anchor(final_seen, final_end, final_discovered) is not None or is_final_status(status, status_text):
         return None
     if now >= tip + timedelta(hours=6):
         return None
@@ -201,10 +216,10 @@ class Watcher:
         soonest: float | None = None
         watching = False
         for game in self.store.active_games():
-            if box_interval(now, game.tip_utc, game.final_seen_utc, game.final_end_utc, **_pace(game)) is not None:
+            if _box_wait(now, game) is not None:
                 watching = True
                 soonest = _sooner(soonest, game.next_box_poll_utc, now)
-            if book_interval(now, game.tip_utc, game.final_seen_utc, game.final_end_utc, **_pace(game)) is not None:
+            if _book_wait(now, game) is not None:
                 watching = True
                 soonest = _sooner(soonest, game.next_book_poll_utc, now)
         if not watching or soonest is None:
@@ -214,13 +229,11 @@ class Watcher:
     def _tick_game(self, game: Game, now: datetime) -> None:
         # final_seen_utc is only set when we watch the status flip to final.
         # Discovering a game that is already final must not pretend we saw it now.
-        game.state = state_for(now, game.tip_utc, game.final_seen_utc, game.final_end_utc)
+        game.state = _state(now, game)
         if game.state == "DONE":
             self.store.save_game(game)
             return
-        if _due(now, game.next_box_poll_utc) and box_interval(
-            now, game.tip_utc, game.final_seen_utc, game.final_end_utc, **_pace(game)
-        ):
+        if _due(now, game.next_box_poll_utc) and _box_wait(now, game):
             try:
                 self._poll_box(game, now)
                 self._fail.pop((game.game_id, "box"), None)
@@ -228,16 +241,14 @@ class Watcher:
                 game.next_box_poll_utc = now + self._backoff(game, "box")
                 log.warning("box poll failed game=%s", game.game_id)
             else:
-                interval = box_interval(now, game.tip_utc, game.final_seen_utc, game.final_end_utc, **_pace(game))
+                interval = _box_wait(now, game)
                 if interval is not None:
                     game.next_box_poll_utc = now + interval
-            game.state = state_for(now, game.tip_utc, game.final_seen_utc, game.final_end_utc)
+            game.state = _state(now, game)
             if game.state == "DONE":
                 self.store.save_game(game)
                 return
-        if _due(now, game.next_book_poll_utc) and book_interval(
-            now, game.tip_utc, game.final_seen_utc, game.final_end_utc, **_pace(game)
-        ):
+        if _due(now, game.next_book_poll_utc) and _book_wait(now, game):
             try:
                 self._poll_book(game, now)
                 self._fail.pop((game.game_id, "book"), None)
@@ -246,9 +257,7 @@ class Watcher:
                 log.warning("book poll failed game=%s", game.game_id)
             else:
                 if game.state != "DONE":
-                    interval = book_interval(
-                        now, game.tip_utc, game.final_seen_utc, game.final_end_utc, **_pace(game)
-                    )
+                    interval = _book_wait(now, game)
                     if interval is not None:
                         game.next_book_poll_utc = now + interval
         self.store.save_game(game)
@@ -354,7 +363,11 @@ class Watcher:
             parse_pdf=self.parse_pdf,
             now=fetched_at,
         )
-        game.state = "DONE"
+        # _kind already said final, but ingest parses again. A failure there
+        # stores unknown. Leave the game active so the next poll can upgrade it.
+        stored = self.store.version_by_hash(game.game_id, digest)
+        if stored is not None and stored.kind == "final":
+            game.state = "DONE"
 
     def _revisit(self, game, existing, kind, body, headers, size, fetched_at, digest) -> None:
         if existing.kind == "unknown" and kind == "unknown":
@@ -430,6 +443,34 @@ class Watcher:
 
 def _pace(game: Game) -> dict:
     return {"status": game.game_status, "status_text": game.game_status_text, "period": game.period}
+
+
+def _state(now: datetime, game: Game) -> str:
+    return state_for(
+        now, game.tip_utc, game.final_seen_utc, game.final_end_utc, game.final_discovered_utc
+    )
+
+
+def _book_wait(now: datetime, game: Game) -> timedelta | None:
+    return book_interval(
+        now,
+        game.tip_utc,
+        game.final_seen_utc,
+        game.final_end_utc,
+        final_discovered=game.final_discovered_utc,
+        **_pace(game),
+    )
+
+
+def _box_wait(now: datetime, game: Game) -> timedelta | None:
+    return box_interval(
+        now,
+        game.tip_utc,
+        game.final_seen_utc,
+        game.final_end_utc,
+        final_discovered=game.final_discovered_utc,
+        **_pace(game),
+    )
 
 
 def _due(now: datetime, next_at: datetime | None) -> bool:

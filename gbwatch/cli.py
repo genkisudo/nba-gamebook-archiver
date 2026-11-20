@@ -10,6 +10,7 @@ import subprocess
 import sys
 import time
 from datetime import date, datetime, timedelta, timezone
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import httpx
@@ -85,11 +86,14 @@ def main(argv: list[str] | None = None) -> int:
     imported.add_argument("--note", default=None, help="optional note stored with the version")
 
     args = parser.parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     config = load_config()
     if args.cmd == "run":
+        # The box daemon writes a rotating file. Actions logs on stderr instead,
+        # which is what the workflow captures.
+        _configure_run_logging(config.data_dir)
         serve(config)
         return 0
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     if args.cmd == "actions":
         return _actions(config, args)
     if args.cmd == "restore":
@@ -193,6 +197,24 @@ def _repo_root() -> Path:
     return Path.cwd()
 
 
+def _configure_run_logging(data_dir: Path) -> None:
+    """Rotate the daemon log in-process. run.sh does not restart a live daemon.
+
+    Not used for `gbwatch actions`: that command logs to stderr so the
+    workflow log still receives the lines.
+    """
+    data_dir.mkdir(parents=True, exist_ok=True)
+    path = str((data_dir / "gbwatch.log").resolve())
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    for handler in root.handlers:
+        if isinstance(handler, RotatingFileHandler) and handler.baseFilename == path:
+            return
+    handler = RotatingFileHandler(path, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    root.addHandler(handler)
+
+
 def serve(config, *, client: httpx.Client | None = None, clock=None, sleep=time.sleep, max_ticks: int | None = None) -> None:
     """Long-lived poll. Tests pass max_ticks and a fake clock."""
     own_client = client is None
@@ -291,11 +313,24 @@ def _refresh_schedule(
             if discovered_too_late(game, started_at):
                 game.state = "DONE"
             else:
+                # Not a live observation. final_seen_utc stays empty so lateness
+                # cannot treat discovery time as the moment the game ended.
                 if finished:
-                    game.final_seen_utc = now
-                game.state = state_for(now, game.tip_utc, game.final_seen_utc, game.final_end_utc)
-        elif finished and known.final_seen_utc is None and not discovered_too_late(game, started_at):
-            game.final_seen_utc = now
+                    game.final_discovered_utc = now
+                game.state = state_for(
+                    now,
+                    game.tip_utc,
+                    game.final_seen_utc,
+                    game.final_end_utc,
+                    game.final_discovered_utc,
+                )
+        elif (
+            finished
+            and known.final_seen_utc is None
+            and known.final_discovered_utc is None
+            and not discovered_too_late(game, started_at)
+        ):
+            game.final_discovered_utc = now
         store.upsert_game(game)
 
 

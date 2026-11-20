@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from gbwatch import classify
 from gbwatch.diff import diff_stats
 from gbwatch.models import Game, Version
@@ -59,7 +57,7 @@ def render_show(store: Store, game: Game) -> str:
         lines.append(f"  server Last-Modified: {first.last_modified}")
         lines.append(f"  pdf CreationDate: {first.pdf_created}")
         lines.append(f"  sha256: {first.sha256}")
-        lines.append(f"  wayback: {first.wayback_url}")
+        lines.append(f"  wayback: {_wayback_label(first)}")
         lines.append(f"  path: {first.path}")
         if first.note:
             lines.append(f"  note: {first.note}")
@@ -127,6 +125,14 @@ def render_summary(store: Store, date_et: str) -> str:
         )
     lines.append("")
     return "\n".join(lines)
+
+
+def _wayback_label(version: Version) -> str:
+    if version.wayback_url:
+        return f"{version.wayback_url} (verified)"
+    if version.wayback_mismatch_url:
+        return f"MISMATCH {version.wayback_mismatch_url}"
+    return "None"
 
 
 def _stats(store: Store, version: Version) -> dict:

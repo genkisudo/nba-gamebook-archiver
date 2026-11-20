@@ -21,6 +21,7 @@ class Game:
     state: str = "SCHEDULED"
     final_seen_utc: datetime | None = None
     final_end_utc: datetime | None = None
+    final_discovered_utc: datetime | None = None
     next_box_poll_utc: datetime | None = None
     next_book_poll_utc: datetime | None = None
 
@@ -48,6 +49,7 @@ class Version:
     source: str
     note: str | None = None
     late_capture: int = 0
+    wayback_mismatch_url: str | None = None
 
 
 @dataclass

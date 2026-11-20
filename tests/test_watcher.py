@@ -204,6 +204,56 @@ def test_sequence_saves_first_final_then_stops(tmp_path, monkeypatch):
     assert (tmp_path / "alerts.jsonl").read_text().count("\n") == 1
 
 
+def test_reparse_failure_does_not_mark_the_game_done(tmp_path, monkeypatch):
+    """Classification says final, then the ingest re-parse raises."""
+    monkeypatch.delenv("IA_ACCESS", raising=False)
+    monkeypatch.delenv("IA_SECRET", raising=False)
+    final = (FIXTURES / "MEMCLE_final.pdf").read_bytes()
+    calls = {"n": 0}
+
+    def parse(path):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("reparse failed")
+        from gbwatch.classify import parse_pdf
+
+        return parse_pdf(path)
+
+    headers = {"ETag": "final", "Last-Modified": "t", "Content-Length": str(len(final))}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "HEAD":
+            return httpx.Response(200, headers=headers)
+        return httpx.Response(200, headers=headers, content=final)
+
+    store = Store(tmp_path)
+    game = _game()
+    game.game_status = 3
+    game.game_status_text = "Final"
+    game.final_seen_utc = datetime(2026, 11, 19, 2, 40, tzinfo=timezone.utc)
+    game.state = "FINAL_SEEN"
+    store.save_game(game)
+    clock = Clock(datetime(2026, 11, 19, 2, 45, tzinfo=timezone.utc))
+    watcher = Watcher(
+        store,
+        httpx.Client(transport=httpx.MockTransport(handler)),
+        clock,
+        sleeper=lambda _s: None,
+        parse_pdf=parse,
+    )
+    watcher.tick(clock.now())
+    assert store.get_game(game.game_id).state != "DONE"
+    saved = store.versions(game.game_id)[0]
+    assert saved.kind == "unknown"
+    assert store.unread_alerts(0) == []
+
+    clock.advance(30)
+    watcher.tick(clock.now())
+    assert store.versions(game.game_id)[0].kind == "final"
+    assert store.get_game(game.game_id).state == "DONE"
+    assert store.unread_alerts(0)[0]["type"] == "first_final"
+
+
 def test_postponed_game_stops_without_requests(tmp_path):
     def handler(_request: httpx.Request) -> httpx.Response:
         raise AssertionError("no HTTP for a game already past tip+6h")

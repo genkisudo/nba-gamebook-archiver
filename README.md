@@ -116,7 +116,7 @@ gbwatch import --game WASTOR --date 20261118 --fetched-utc 2026-11-19T03:09:00Z 
   --source otb --text capture.txt --note "resolver artifact"
 ```
 
-`scripts/run.sh` rotates `gbwatch.log` past 10MB (keeps five archives) and refuses to start a second copy. A systemd unit for the same command:
+`scripts/run.sh` holds `$DATA_DIR/gbwatch.lock` and refuses to start a second copy. The `run` command rotates `$DATA_DIR/gbwatch.log` itself (10MB, five archives). `run.sh` discards the daemon's stdout and appends stderr to that log. `gbwatch actions` does not use that file: it logs to stderr, which is the workflow log. A systemd unit for the same command:
 
 ```ini
 [Service]
@@ -129,6 +129,8 @@ Restart=always
 ```
 
 Put `IA_ACCESS` and `IA_SECRET` in `gbwatch.env` if you use systemd. Do not commit that file.
+
+Do not run this unit and `scripts/watchdog.sh` together. The unit starts `gbwatch run` directly, so it does not take the lock `run.sh` uses, and both would archive the same games.
 
 ## What it stores
 
@@ -158,7 +160,7 @@ The suite is offline: HTTP is faked, the clock is faked, and the PDFs under `tes
 - `gameEt` on nba.com is an Eastern clock time with a `Z` suffix. The slate date is that calendar date. `gameTimeUTC` is the real tip.
 - PDF CreationDate and ModDate come from `pdfinfo -isodates`, which keeps the file's offset, and are stored as UTC. Plain `pdfinfo` prints those instants in the process timezone.
 - The book is not polled from tip-off. Until `QUIET_MINUTES` after tip (default 105, about the length of a game) the box score is checked at most every 10 minutes and the PDF is not requested. From then until Final, both are checked every 60 seconds. Quarter 4 or later starts that active window early. If the game is still pre-game 30 minutes after the listed tip, that tip is ignored and the book waits for quarter 4 or a revised tip. Once Final is seen, even before the quiet window ends, the book is checked every 30 seconds until the first final PDF is stored.
-- A first `final` fetched more than `LATE_CAPTURE_MINUTES` (default 20) after the live final observation, or after the box score's `actualEndTimeUTC` when the final was not seen live, is stored as `final` with `late_capture=1` and alert type `late_first_capture`. `show` labels it `LATE: not proof of first book`. Games whose final was more than 6 hours before the daemon started are not watched; `backfill` can still archive them.
+- A first `final` fetched more than `LATE_CAPTURE_MINUTES` (default 20) after its anchor is late, measured from the earlier of the live final observation and the box score's `actualEndTimeUTC`. It is stored as `final` with `late_capture=1` and alert type `late_first_capture`. A live book for a game discovered already final, with no live observation and no `actualEndTimeUTC`, is late as well: the final was not seen. `show` labels it `LATE: not proof of first book`. Games whose final was more than 6 hours before the daemon started are not watched; `backfill` can still archive them.
 - Wayback network failures back off up to 30 minutes and are marked failed after 24 hours. One warning is logged when the job starts failing, and one when it gives up.
 - Gamma's `tag_slug=nba&closed=false` listing is futures-first, so the client also sends `series_slug=nba-{year}` and, if needed, looks up `nba-{away}-{home}-{date}`. If that fetch fails or returns no events, every game on the slate is watched.
 - `scripts/watchdog.sh` calls `scripts/run.sh` every five minutes. `run.sh` does nothing when the daemon is already running.

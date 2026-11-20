@@ -106,16 +106,26 @@ class EventCache:
     def __init__(self) -> None:
         self.fetched_at: datetime | None = None
         self.events: list[dict] = []
+        self.slugs: set[str] = set()
 
     def get(self, now: datetime, client: httpx.Client, games: list[Game], *, sleeper=None) -> list[dict]:
         waiting = any(game.tip_utc > now for game in games)
         stale = self.fetched_at is None or (now - self.fetched_at) >= timedelta(minutes=30)
-        if waiting and stale:
+        if self.fetched_at is None or (waiting and stale):
             self.events = fetch_events(client, games, sleeper=sleeper)
             self.fetched_at = now
-        elif self.fetched_at is None:
-            self.events = fetch_events(client, games, sleeper=sleeper)
-            self.fetched_at = now
+            self.slugs = {event_slug_for(game) for game in games}
+            return self.events
+        missing = [game for game in games if event_slug_for(game) not in self.slugs]
+        if missing:
+            extra, fetched, _ok = fetch_event_slugs(client, missing, sleeper=sleeper)
+            seen = {event.get("slug") or "" for event in self.events}
+            for event in extra:
+                slug = event.get("slug") or ""
+                if slug and slug not in seen:
+                    seen.add(slug)
+                    self.events.append(event)
+            self.slugs.update(fetched)
         return self.events
 
 
@@ -152,10 +162,35 @@ def fetch_events(client: httpx.Client, games: list[Game], *, sleeper=None) -> li
             if slug not in seen:
                 seen.add(slug)
                 events.append(event)
+    missing = [game for game in games if event_slug_for(game) not in seen]
+    extra, _fetched, slug_ok = fetch_event_slugs(client, missing, sleeper=sleeper)
+    if slug_ok:
+        ok = True
+    for event in extra:
+        slug = event.get("slug") or ""
+        if slug and slug not in seen:
+            seen.add(slug)
+            events.append(event)
+    if not ok and not events:
+        raise RuntimeError("gamma unavailable")
+    return events
+
+
+def fetch_event_slugs(
+    client: httpx.Client, games: list[Game], *, sleeper=None
+) -> tuple[list[dict], set[str], bool]:
+    """Load events for these games by slug.
+
+    A slug is in the returned set only after an HTTP response, so a network
+    failure is retried and a 404 is not.
+    """
+    kwargs = {"sleeper": sleeper} if sleeper else {}
+    events: list[dict] = []
+    fetched: set[str] = set()
+    seen: set[str] = set()
+    ok = False
     for game in games:
         expected = event_slug_for(game)
-        if expected in seen:
-            continue
         try:
             response = request(
                 client, "GET", GAMMA_EVENTS, params={"slug": expected}, timeout=10.0, retries=1, **kwargs
@@ -163,6 +198,7 @@ def fetch_events(client: httpx.Client, games: list[Game], *, sleeper=None) -> li
         except httpx.HTTPError as exc:
             log.warning("gamma slug fetch failed: %s", type(exc).__name__)
             continue
+        fetched.add(expected)
         if response.status_code != 200:
             continue
         ok = True
@@ -171,9 +207,7 @@ def fetch_events(client: httpx.Client, games: list[Game], *, sleeper=None) -> li
             if slug and slug not in seen:
                 seen.add(slug)
                 events.append(event)
-    if not ok and not events:
-        raise RuntimeError("gamma unavailable")
-    return events
+    return events, fetched, ok
 
 
 def _as_events(payload) -> list[dict]:
@@ -201,4 +235,5 @@ def _event_date(event: dict) -> str | None:
 
 def _mentioned(tricode: str, blob: str) -> bool:
     names = TEAMS.get(tricode.upper(), (tricode.lower(),))
-    return any(name in blob for name in names)
+    # "nets" is a substring of "hornets". Hyphens in slugs are word boundaries.
+    return any(re.search(rf"\b{re.escape(name)}\b", blob) for name in names)
