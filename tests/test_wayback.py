@@ -4,9 +4,16 @@ from datetime import datetime, timezone
 import httpx
 
 from gbwatch.models import Game
+from gbwatch.notify import render_show
 from gbwatch.schedule import book_url
-from gbwatch.store import Store
+from gbwatch.store import Store, sha256_bytes
 from gbwatch.wayback import Wayback
+
+ARCHIVED = b"%PDF-1.4 first final bytes\n"
+SNAPSHOT = (
+    "https://web.archive.org/web/20261119031141/"
+    "https://statsdmz.nba.com/pdfs/20261118/20261118_MEMCLE_book.pdf"
+)
 
 SECRET = "SUPERSECRETVALUE"
 ACCESS = "ACCESSKEYVALUE"
@@ -44,6 +51,8 @@ def test_save_stores_snapshot_and_does_not_log_secret(tmp_path, caplog, monkeypa
             seen["accept"] = request.headers.get("accept")
             seen["body"] = request.content.decode()
             return httpx.Response(200, json={"url": "https://statsdmz.nba.com/x", "job_id": "spn-1"})
+        if "id_/" in str(request.url):
+            return httpx.Response(200, content=ARCHIVED)
         return httpx.Response(
             200,
             json={
@@ -61,7 +70,7 @@ def test_save_stores_snapshot_and_does_not_log_secret(tmp_path, caplog, monkeypa
         game_id=game.game_id,
         url=game.book_url,
         fetched_utc="2026-11-19T03:11:41Z",
-        sha256="abc",
+        sha256=sha256_bytes(ARCHIVED),
         kind="final",
         path="/tmp/x.pdf",
         source="live",
@@ -276,6 +285,114 @@ def test_pending_status_expires_after_a_day_and_frees_the_slot(tmp_path, monkeyp
     submitted = store.wayback_by_status("submitted")
     assert len(submitted) == 1
     assert submitted[0].version_id == second.id
+
+
+def _success_handler(archived: bytes):
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if request.method == "POST":
+            return httpx.Response(200, json={"job_id": "spn-verify"})
+        if "id_/" in url:
+            return httpx.Response(200, content=archived)
+        return httpx.Response(
+            200,
+            json={
+                "status": "success",
+                "job_id": "spn-verify",
+                "timestamp": "20261119031141",
+                "original_url": "https://statsdmz.nba.com/pdfs/20261118/20261118_MEMCLE_book.pdf",
+            },
+        )
+
+    return handler
+
+
+def _queued(tmp_path, handler, digest: str):
+    store = Store(tmp_path)
+    game = _game()
+    store.save_game(game)
+    version = store.insert_version(
+        game_id=game.game_id,
+        url=game.book_url,
+        fetched_utc="2026-11-19T03:11:41Z",
+        sha256=digest,
+        kind="final",
+        path="/tmp/verify.pdf",
+        source="live",
+    )
+    clock = Clock()
+    wayback = Wayback(
+        store,
+        httpx.Client(transport=httpx.MockTransport(handler)),
+        clock,
+        sleeper=lambda _s: None,
+    )
+    wayback.enqueue(version.id, game.book_url)
+    wayback.drain()
+    return store, game, version, wayback
+
+
+def test_wayback_url_is_set_only_when_archived_bytes_match(tmp_path, monkeypatch):
+    monkeypatch.setenv("IA_ACCESS", ACCESS)
+    monkeypatch.setenv("IA_SECRET", SECRET)
+    store, game, version, _wayback = _queued(tmp_path, _success_handler(ARCHIVED), sha256_bytes(ARCHIVED))
+    stored = store.get_version(version.id)
+    assert stored.wayback_url == SNAPSHOT
+    assert stored.wayback_mismatch_url is None
+    shown = render_show(store, game)
+    assert f"wayback: {SNAPSHOT} (verified)" in shown
+    assert SECRET not in shown
+
+
+def test_wayback_mismatch_is_recorded_and_not_attached(tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("IA_ACCESS", ACCESS)
+    monkeypatch.setenv("IA_SECRET", SECRET)
+    caplog.set_level("WARNING")
+    store, game, version, _wayback = _queued(
+        tmp_path, _success_handler(b"%PDF-1.4 a later revision\n"), sha256_bytes(ARCHIVED)
+    )
+    stored = store.get_version(version.id)
+    assert stored.wayback_url is None
+    assert stored.wayback_mismatch_url == SNAPSHOT
+    assert store.wayback_by_status("submitted") == []
+    shown = render_show(store, game)
+    assert f"wayback: MISMATCH {SNAPSHOT}" in shown
+    assert "(verified)" not in shown
+    assert SECRET not in caplog.text
+    assert ACCESS not in caplog.text
+
+
+def test_wayback_download_failure_retries_without_a_new_save(tmp_path, monkeypatch):
+    monkeypatch.setenv("IA_ACCESS", ACCESS)
+    monkeypatch.setenv("IA_SECRET", SECRET)
+    posts = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            posts["n"] += 1
+            return httpx.Response(200, json={"job_id": "spn-retry"})
+        if "id_/" in str(request.url):
+            return httpx.Response(503, text="unavailable")
+        return httpx.Response(
+            200,
+            json={
+                "status": "success",
+                "timestamp": "20261119031141",
+                "original_url": "https://statsdmz.nba.com/pdfs/20261118/20261118_MEMCLE_book.pdf",
+            },
+        )
+
+    store, _game, version, wayback = _queued(tmp_path, handler, sha256_bytes(ARCHIVED))
+    stored = store.get_version(version.id)
+    assert stored.wayback_url is None
+    assert stored.wayback_mismatch_url is None
+    job = store.wayback_by_status("submitted")[0]
+    assert job.version_id == version.id
+    assert job.next_try_utc == "2026-11-19T03:00:05Z"
+    assert posts["n"] == 1
+    # Still inside the backoff, so drain must not start another Save Page Now.
+    wayback.drain()
+    assert posts["n"] == 1
 
 
 def test_submitted_status_is_polled_once_per_interval(tmp_path, monkeypatch):

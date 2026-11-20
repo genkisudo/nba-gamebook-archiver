@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS versions (
     kind TEXT,
     path TEXT,
     wayback_url TEXT,
+    wayback_mismatch_url TEXT,
     source TEXT NOT NULL DEFAULT 'live',
     note TEXT,
     late_capture INTEGER NOT NULL DEFAULT 0,
@@ -90,6 +91,7 @@ class Store:
         self._add_column("games", "final_end_utc", "TEXT")
         self._add_column("games", "period", "INTEGER")
         self._add_column("wayback_jobs", "created_utc", "TEXT")
+        self._add_column("versions", "wayback_mismatch_url", "TEXT")
         self.conn.commit()
 
     def _add_column(self, table: str, name: str, ddl: str) -> None:
@@ -301,6 +303,13 @@ class Store:
         )
         self.conn.commit()
 
+    def set_wayback_mismatch_url(self, version_id: int, wayback_url: str) -> None:
+        self.conn.execute(
+            "UPDATE versions SET wayback_mismatch_url = ? WHERE id = ?",
+            (wayback_url, version_id),
+        )
+        self.conn.commit()
+
     def get_version(self, version_id: int) -> Version:
         row = self.conn.execute("SELECT * FROM versions WHERE id = ?", (version_id,)).fetchone()
         if row is None:
@@ -490,6 +499,7 @@ def _version(row: sqlite3.Row) -> Version:
         source=row["source"],
         note=row["note"],
         late_capture=int(row["late_capture"] or 0),
+        wayback_mismatch_url=row["wayback_mismatch_url"],
     )
 
 

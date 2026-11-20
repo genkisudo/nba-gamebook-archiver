@@ -48,6 +48,7 @@ class Version:
     source: str
     note: str | None = None
     late_capture: int = 0
+    wayback_mismatch_url: str | None = None
 
 
 @dataclass

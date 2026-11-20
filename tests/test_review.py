@@ -12,7 +12,7 @@ from gbwatch.cli import _refresh_schedule, serve
 from gbwatch.config import Config
 from gbwatch.models import Game
 from gbwatch.schedule import book_url
-from gbwatch.store import Store
+from gbwatch.store import Store, sha256_bytes
 from gbwatch.watcher import Watcher
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -174,6 +174,7 @@ def test_wayback_429_is_scheduled_not_slept_and_retried_by_serve(tmp_path, monke
     monkeypatch.setenv("GAME_FILTER", "all")
     posts = {"n": 0}
     slept = []
+    proof = b"%PDF-1.4 serve proof\n"
 
     def handler(request: httpx.Request) -> httpx.Response:
         url = str(request.url)
@@ -193,6 +194,8 @@ def test_wayback_429_is_scheduled_not_slept_and_retried_by_serve(tmp_path, monke
                     "original_url": "https://statsdmz.nba.com/x.pdf",
                 },
             )
+        if "id_/" in url:
+            return httpx.Response(200, content=proof)
         return httpx.Response(404)
 
     store = Store(tmp_path)
@@ -205,7 +208,7 @@ def test_wayback_429_is_scheduled_not_slept_and_retried_by_serve(tmp_path, monke
         game_id=game.game_id,
         url=game.book_url,
         fetched_utc="2026-11-19T03:11:41Z",
-        sha256="abc",
+        sha256=sha256_bytes(proof),
         kind="final",
         path="/tmp/x.pdf",
         source="live",
