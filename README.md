@@ -116,7 +116,7 @@ gbwatch import --game WASTOR --date 20261118 --fetched-utc 2026-11-19T03:09:00Z 
   --source otb --text capture.txt --note "resolver artifact"
 ```
 
-`scripts/run.sh` rotates `gbwatch.log` past 10MB (keeps five archives) and refuses to start a second copy. A systemd unit for the same command:
+`scripts/run.sh` refuses to start a second copy. The `run` command rotates `$DATA_DIR/gbwatch.log` itself (10MB, five archives). `run.sh` discards the daemon's stdout and appends stderr to that log. A systemd unit for the same command:
 
 ```ini
 [Service]

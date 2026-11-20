@@ -1,5 +1,8 @@
 import json
 import logging
+import os
+import subprocess
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -121,6 +124,92 @@ def test_exception_traceback_scrubs_secret(caplog, monkeypatch):
         logging.getLogger("gbwatch.test").exception("wayback failed")
     assert "SUPERSECRETVALUE" not in caplog.text
     assert "[redacted]" in caplog.text
+
+
+def test_run_rotates_its_own_log(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("GAME_FILTER", "all")
+    monkeypatch.setattr("gbwatch.cli.serve", lambda *_args, **_kwargs: None)
+    from logging.handlers import RotatingFileHandler
+
+    root = logging.getLogger()
+    before = list(root.handlers)
+    try:
+        assert main(["run"]) == 0
+        added = [
+            handler
+            for handler in root.handlers
+            if isinstance(handler, RotatingFileHandler) and handler not in before
+        ]
+        assert len(added) == 1
+        assert added[0].maxBytes == 10 * 1024 * 1024
+        assert added[0].backupCount == 5
+        assert added[0].baseFilename == str((tmp_path / "gbwatch.log").resolve())
+    finally:
+        for handler in list(root.handlers):
+            if handler not in before:
+                root.removeHandler(handler)
+                handler.close()
+
+
+def test_actions_logs_on_stderr_not_the_rotating_file(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setattr("gbwatch.session.run_session", lambda *_args, **_kwargs: "idle")
+    root = logging.getLogger()
+    before = list(root.handlers)
+    try:
+        assert main(["actions"]) == 0
+        from logging.handlers import RotatingFileHandler
+
+        added = [handler for handler in root.handlers if handler not in before]
+        assert not any(isinstance(handler, RotatingFileHandler) for handler in added)
+        assert not (tmp_path / "gbwatch.log").exists()
+        assert "gbwatch actions: idle" in capsys.readouterr().out
+    finally:
+        for handler in list(root.handlers):
+            if handler not in before:
+                root.removeHandler(handler)
+                handler.close()
+
+
+def test_run_sh_discards_stdout_and_keeps_stderr(tmp_path):
+    root = tmp_path / "app"
+    (root / "scripts").mkdir(parents=True)
+    bin_dir = root / ".venv" / "bin"
+    bin_dir.mkdir(parents=True)
+    stub = bin_dir / "gbwatch"
+    stub.write_text("#!/bin/sh\necho STDOUT_MARKER\necho STDERR_MARKER >&2\nsleep 30\n")
+    stub.chmod(0o755)
+    source = Path(__file__).resolve().parents[1] / "scripts" / "run.sh"
+    script = root / "scripts" / "run.sh"
+    script.write_text(source.read_text())
+    script.chmod(0o755)
+    data = tmp_path / "data"
+    env = os.environ.copy()
+    env["DATA_DIR"] = str(data)
+    result = subprocess.run(
+        ["bash", str(script)], env=env, capture_output=True, text=True, timeout=10
+    )
+    pid_path = data / "gbwatch.pid"
+    pid = int(pid_path.read_text()) if pid_path.exists() else None
+    try:
+        assert result.returncode == 0, result.stderr
+        log = ""
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            if (data / "gbwatch.log").exists():
+                log = (data / "gbwatch.log").read_text()
+            if "STDERR_MARKER" in log or "STDOUT_MARKER" in log:
+                break
+            time.sleep(0.05)
+        assert "STDERR_MARKER" in log
+        assert "STDOUT_MARKER" not in log
+    finally:
+        if pid:
+            try:
+                os.kill(pid, 15)
+            except ProcessLookupError:
+                pass
 
 
 def test_serve_one_tick_offline(tmp_path):
