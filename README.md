@@ -116,7 +116,7 @@ gbwatch import --game WASTOR --date 20261118 --fetched-utc 2026-11-19T03:09:00Z 
   --source otb --text capture.txt --note "resolver artifact"
 ```
 
-`scripts/run.sh` holds `$DATA_DIR/gbwatch.lock` and refuses to start a second copy. The `run` command rotates `$DATA_DIR/gbwatch.log` itself (10MB, five archives). `run.sh` discards the daemon's stdout and appends stderr to that log. A systemd unit for the same command:
+`scripts/run.sh` holds `$DATA_DIR/gbwatch.lock` and refuses to start a second copy. The `run` command rotates `$DATA_DIR/gbwatch.log` itself (10MB, five archives). `run.sh` discards the daemon's stdout and appends stderr to that log. `gbwatch actions` does not use that file: it logs to stderr, which is the workflow log. A systemd unit for the same command:
 
 ```ini
 [Service]
