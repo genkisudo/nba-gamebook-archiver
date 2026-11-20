@@ -162,10 +162,17 @@ def ensure_matchup(store: Store, away: str, home: str, day: date) -> Game:
     return game
 
 
-def _lateness(game: Game, fetched_utc: str) -> tuple[bool, int]:
-    """Minutes after the earlier of the live observation and the box-score end."""
+def _lateness(game: Game, fetched_utc: str, source: str = "live") -> tuple[bool, int]:
+    """Minutes after the earlier of the live observation and the box-score end.
+
+    A live fetch of a game that was already final when discovered, with neither
+    anchor, cannot be shown to be the first book.
+    """
     anchors = [moment for moment in (game.final_seen_utc, game.final_end_utc) if moment is not None]
     if not anchors:
+        if source == "live" and game.final_discovered_utc is not None:
+            gap = int((parse_utc(fetched_utc) - game.final_discovered_utc).total_seconds() // 60)
+            return True, max(gap, 0)
         return False, 0
     gap_minutes = int((parse_utc(fetched_utc) - min(anchors)).total_seconds() // 60)
     return gap_minutes > late_capture_minutes(), max(gap_minutes, 0)
@@ -192,7 +199,7 @@ def _alert(store: Store, game: Game, version, now: datetime) -> None:
         return
     created = format_utc(now)
     if finals[0].id == version.id:
-        late, gap_minutes = _lateness(game, version.fetched_utc)
+        late, gap_minutes = _lateness(game, version.fetched_utc, version.source)
         if late:
             store.set_late_capture(version.id)
             version = store.get_version(version.id)

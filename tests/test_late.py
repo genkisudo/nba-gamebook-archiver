@@ -38,23 +38,19 @@ def _game(**overrides) -> Game:
     return game
 
 
-def _box(tip: str, end: str) -> str:
-    payload = {
-        "props": {
-            "pageProps": {
-                "game": {
-                    "gameId": "0022600258",
-                    "gameStatus": 3,
-                    "gameStatusText": "Final",
-                    "gameTimeUTC": tip,
-                    "gameEt": "2026-11-18T19:00:00Z",
-                    "actualEndTimeUTC": end,
-                    "awayTeam": {"teamTricode": "MEM"},
-                    "homeTeam": {"teamTricode": "CLE"},
-                }
-            }
-        }
+def _box(tip: str, end: str | None) -> str:
+    game = {
+        "gameId": "0022600258",
+        "gameStatus": 3,
+        "gameStatusText": "Final",
+        "gameTimeUTC": tip,
+        "gameEt": "2026-11-18T19:00:00Z",
+        "awayTeam": {"teamTricode": "MEM"},
+        "homeTeam": {"teamTricode": "CLE"},
     }
+    if end is not None:
+        game["actualEndTimeUTC"] = end
+    payload = {"props": {"pageProps": {"game": game}}}
     return f'<script id="__NEXT_DATA__" type="application/json">{json.dumps(payload)}</script>'
 
 
@@ -176,8 +172,10 @@ def test_startup_still_watches_a_final_inside_six_hours_and_flags_it(tmp_path):
     books: list[str] = []
     client = _refresh(store, "2026-11-19T10:30:00Z", "2026-11-19T08:00:00Z", started, books)
     game = store.get_game("0022600258")
-    assert game.state == "FINAL_SEEN"
-    assert game.final_seen_utc == started
+    # The end was hours ago, so this is the watch-book window, not a live final.
+    assert game.state == "WATCH_BOOK"
+    assert game.final_seen_utc is None
+    assert game.final_discovered_utc == started
 
     class Clock:
         def now(self):
@@ -193,3 +191,27 @@ def test_startup_still_watches_a_final_inside_six_hours_and_flags_it(tmp_path):
     assert alert["gap_minutes"] == 349
     assert store.get_game("0022600258").state == "DONE"
     assert "LATE: not proof of first book" in render_show(store, store.get_game("0022600258"))
+
+
+def test_startup_flags_late_when_the_box_has_no_end_time(tmp_path):
+    """Already final at discovery, and the box score has no actualEndTimeUTC."""
+    store = Store(tmp_path)
+    started = datetime(2026, 11, 19, 16, 19, tzinfo=timezone.utc)
+    books: list[str] = []
+    client = _refresh(store, None, "2026-11-19T08:00:00Z", started, books)
+    game = store.get_game("0022600258")
+    assert game is not None
+    assert game.final_seen_utc is None
+    assert game.final_end_utc is None
+
+    class Clock:
+        def now(self):
+            return started
+
+    Watcher(store, client, Clock(), sleeper=lambda _s: None).tick(started)
+    assert books
+    version = store.versions("0022600258")[0]
+    assert version.kind == "final"
+    assert version.late_capture == 1
+    alert = store.unread_alerts(0)[0]
+    assert alert["type"] == "late_first_capture"

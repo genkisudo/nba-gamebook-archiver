@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS games (
     state TEXT NOT NULL,
     final_seen_utc TEXT,
     final_end_utc TEXT,
+    final_discovered_utc TEXT,
     next_box_poll_utc TEXT,
     next_book_poll_utc TEXT,
     updated_utc TEXT
@@ -89,6 +90,7 @@ class Store:
         self._add_column("versions", "note", "TEXT")
         self._add_column("versions", "late_capture", "INTEGER NOT NULL DEFAULT 0")
         self._add_column("games", "final_end_utc", "TEXT")
+        self._add_column("games", "final_discovered_utc", "TEXT")
         self._add_column("games", "period", "INTEGER")
         self._add_column("wayback_jobs", "created_utc", "TEXT")
         self._add_column("versions", "wayback_mismatch_url", "TEXT")
@@ -152,6 +154,8 @@ class Store:
             existing.final_end_utc = game.final_end_utc
         if existing.final_seen_utc is None and game.final_seen_utc is not None:
             existing.final_seen_utc = game.final_seen_utc
+        if existing.final_discovered_utc is None and game.final_discovered_utc is not None:
+            existing.final_discovered_utc = game.final_discovered_utc
         self.save_game(existing)
         return existing
 
@@ -164,8 +168,8 @@ class Store:
             INSERT INTO games (
                 game_id, date_et, away, home, slug, book_url, tip_utc,
                 game_status, game_status_text, period, state, final_seen_utc, final_end_utc,
-                next_box_poll_utc, next_book_poll_utc, updated_utc
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                final_discovered_utc, next_box_poll_utc, next_book_poll_utc, updated_utc
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(game_id) DO UPDATE SET
                 date_et=excluded.date_et,
                 away=excluded.away,
@@ -179,6 +183,7 @@ class Store:
                 state=excluded.state,
                 final_seen_utc=excluded.final_seen_utc,
                 final_end_utc=excluded.final_end_utc,
+                final_discovered_utc=excluded.final_discovered_utc,
                 next_box_poll_utc=excluded.next_box_poll_utc,
                 next_book_poll_utc=excluded.next_book_poll_utc,
                 updated_utc=excluded.updated_utc
@@ -197,6 +202,7 @@ class Store:
                 game.state,
                 _fmt(game.final_seen_utc),
                 _fmt(game.final_end_utc),
+                _fmt(game.final_discovered_utc),
                 _fmt(game.next_box_poll_utc),
                 _fmt(game.next_book_poll_utc),
                 format_utc(datetime.now().astimezone()),
@@ -475,6 +481,7 @@ def _game(row: sqlite3.Row) -> Game:
         state=row["state"],
         final_seen_utc=_parse(row["final_seen_utc"]),
         final_end_utc=_parse(row["final_end_utc"]),
+        final_discovered_utc=_parse(row["final_discovered_utc"]),
         next_box_poll_utc=_parse(row["next_box_poll_utc"]),
         next_book_poll_utc=_parse(row["next_book_poll_utc"]),
     )

@@ -21,6 +21,7 @@ class Game:
     state: str = "SCHEDULED"
     final_seen_utc: datetime | None = None
     final_end_utc: datetime | None = None
+    final_discovered_utc: datetime | None = None
     next_box_poll_utc: datetime | None = None
     next_book_poll_utc: datetime | None = None
 

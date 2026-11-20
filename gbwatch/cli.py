@@ -291,11 +291,24 @@ def _refresh_schedule(
             if discovered_too_late(game, started_at):
                 game.state = "DONE"
             else:
+                # Not a live observation. final_seen_utc stays empty so lateness
+                # cannot treat discovery time as the moment the game ended.
                 if finished:
-                    game.final_seen_utc = now
-                game.state = state_for(now, game.tip_utc, game.final_seen_utc, game.final_end_utc)
-        elif finished and known.final_seen_utc is None and not discovered_too_late(game, started_at):
-            game.final_seen_utc = now
+                    game.final_discovered_utc = now
+                game.state = state_for(
+                    now,
+                    game.tip_utc,
+                    game.final_seen_utc,
+                    game.final_end_utc,
+                    game.final_discovered_utc,
+                )
+        elif (
+            finished
+            and known.final_seen_utc is None
+            and known.final_discovered_utc is None
+            and not discovered_too_late(game, started_at)
+        ):
+            game.final_discovered_utc = now
         store.upsert_game(game)
 
 
