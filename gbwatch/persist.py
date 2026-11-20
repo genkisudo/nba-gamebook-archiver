@@ -108,6 +108,7 @@ def version_record(
         "pdf_created": version.pdf_created,
         "sha256": version.sha256,
         "wayback_url": version.wayback_url,
+        "wayback_mismatch_url": version.wayback_mismatch_url,
         "wayback_status": job.status if job is not None else "skipped",
         "late_capture": bool(version.late_capture),
         "first_final": bool(finals) and finals[0].id == version.id,

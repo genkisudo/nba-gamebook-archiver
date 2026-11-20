@@ -330,7 +330,15 @@ def _refresh_schedule(
             and known.final_discovered_utc is None
             and not discovered_too_late(game, started_at)
         ):
-            game.final_discovered_utc = now
+            # The slate refresh runs before the 60s box poll, so it can see
+            # the flip to Final first. A game last seen still playing is a
+            # live observation, same as the watcher. Discovery time stays
+            # for a game that was already final (restart, or first seen
+            # mid-night).
+            if not is_final_status(known.game_status, known.game_status_text):
+                game.final_seen_utc = now
+            else:
+                game.final_discovered_utc = now
         store.upsert_game(game)
 
 

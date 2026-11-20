@@ -86,11 +86,17 @@ def needs_this_run(game: Game, now: datetime, deadline: datetime) -> bool:
 
     A game already inside the window has an actionable time in the past, which
     is before the deadline. A game the daemon would already have dropped
-    (tip + 6h, or 12h after the final) does not keep the shift alive.
+    (tip + 6h, or 12h after the live final, the box-score end, or discovery)
+    does not keep the shift alive.
     """
     if game.state == "DONE":
         return False
-    if state_for(now, game.tip_utc, game.final_seen_utc, game.final_end_utc) == "DONE":
+    if (
+        state_for(
+            now, game.tip_utc, game.final_seen_utc, game.final_end_utc, game.final_discovered_utc
+        )
+        == "DONE"
+    ):
         return False
     return actionable_at(game) <= deadline
 
@@ -98,7 +104,12 @@ def needs_this_run(game: Game, now: datetime, deadline: datetime) -> bool:
 def settle_expired(store, now: datetime) -> None:
     """Mark games the daemon would already have given up on, without HTTP."""
     for game in store.active_games():
-        if state_for(now, game.tip_utc, game.final_seen_utc, game.final_end_utc) == "DONE":
+        if (
+            state_for(
+                now, game.tip_utc, game.final_seen_utc, game.final_end_utc, game.final_discovered_utc
+            )
+            == "DONE"
+        ):
             game.state = "DONE"
             store.save_game(game)
 
