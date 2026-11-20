@@ -363,7 +363,11 @@ class Watcher:
             parse_pdf=self.parse_pdf,
             now=fetched_at,
         )
-        game.state = "DONE"
+        # _kind already said final, but ingest parses again. A failure there
+        # stores unknown. Leave the game active so the next poll can upgrade it.
+        stored = self.store.version_by_hash(game.game_id, digest)
+        if stored is not None and stored.kind == "final":
+            game.state = "DONE"
 
     def _revisit(self, game, existing, kind, body, headers, size, fetched_at, digest) -> None:
         if existing.kind == "unknown" and kind == "unknown":
