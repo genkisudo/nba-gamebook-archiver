@@ -16,6 +16,7 @@ from gbwatch.http import request
 from gbwatch.ingest import ingest_bytes
 from gbwatch.models import Game, Version
 from gbwatch.schedule import BOX_URL, is_final_status, parse_box_score
+from gbwatch.paths import resolve_stored_path
 from gbwatch.store import Store, sha256_bytes
 from gbwatch.timeutil import format_utc
 from gbwatch.wayback import Wayback
@@ -359,10 +360,12 @@ class Watcher:
         if existing.kind == "unknown" and kind == "unknown":
             return
         if kind == "final" and existing.kind != "final":
-            path = existing.path
-            if not path or not Path(path).is_file():
+            resolved = resolve_stored_path(self.store.data_dir, existing.path)
+            if not existing.path or not resolved.is_file():
                 path = str(self.store.pdf_path(game, fetched_at, digest))
                 Path(path).write_bytes(body)
+            else:
+                path = str(resolved)
             self.store.update_version(
                 existing.id,
                 kind="final",

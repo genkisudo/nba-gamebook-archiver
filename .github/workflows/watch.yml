@@ -1,0 +1,85 @@
+# One watcher at a time. A later cron waits, and GitHub keeps only the newest
+# pending run, so a delayed or duplicate fire does not cancel the shift that
+# is already polling. The process exits at five hours (GBWATCH_BUDGET_SECONDS
+# overrides that). timeout-minutes leaves the rest of the six-hour job cap for
+# setup and the publish step. Scheduled workflows run only from the default branch.
+name: Watch game books
+
+on:
+  schedule:
+    # Hourly from 15:00 through 10:00 UTC covers a noon-ET weekend tip (~16:00
+    # or 17:00 UTC) and a West Coast ending around 06:30 UTC, in both EST and EDT.
+    - cron: "0 15-23 * * *"
+    - cron: "0 0-10 * * *"
+    # Half-hour fires at the early and late edges, so a delayed top-of-hour cron
+    # still starts before the quiet window.
+    - cron: "30 15,16,5,6 * * *"
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "ET slate date YYYY-MM-DD. Optional for watch; required for backfill."
+        required: false
+        type: string
+      mode:
+        description: "watch polls the live book; backfill reads Wayback for that date."
+        required: false
+        default: watch
+        type: choice
+        options:
+          - watch
+          - backfill
+
+concurrency:
+  group: gbwatch
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  DATA_DIR: ${{ github.workspace }}/data
+  GAME_FILTER: polymarket
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install poppler and gbwatch
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils
+          python -m pip install -e .
+
+      - name: Restore gamebooks branch
+        run: gbwatch restore
+
+      - name: Watch
+        env:
+          # Repository secrets. Missing values skip Wayback; they are never printed.
+          IA_ACCESS: ${{ secrets.IA_ACCESS }}
+          IA_SECRET: ${{ secrets.IA_SECRET }}
+          GBWATCH_MODE: ${{ inputs.mode }}
+          GBWATCH_SLATE_DATE: ${{ inputs.date }}
+        run: gbwatch actions
+
+      # A failed shift still publishes whatever it stored. A cancelled run does
+      # not: the process may have been killed mid-write. Restore writes
+      # data/.restore-ok; publish refuses to replace the branch without it.
+      - name: Publish gamebooks branch
+        if: always() && !cancelled()
+        env:
+          IA_ACCESS: ${{ secrets.IA_ACCESS }}
+          IA_SECRET: ${{ secrets.IA_SECRET }}
+        run: gbwatch publish

@@ -20,6 +20,12 @@ def _scrub_record(record: logging.LogRecord) -> logging.LogRecord:
     if isinstance(record.msg, str):
         record.msg = _scrub(record.msg, secrets)
     record.args = _scrub_args(record.args, secrets)
+    if record.exc_text:
+        record.exc_text = _scrub(record.exc_text, secrets)
+    exc = record.exc_info
+    if exc and exc[1] is not None and any(secret in str(exc[1]) for secret in secrets):
+        record.exc_info = (exc[0], RuntimeError(_scrub(str(exc[1]), secrets)), None)
+        record.exc_text = None
     return record
 
 

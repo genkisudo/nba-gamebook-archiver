@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
+import subprocess
 import sys
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -43,6 +45,16 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("run", help="poll the slate until each game is 12h past final")
 
+    actions = sub.add_parser(
+        "actions",
+        help="one GitHub Actions shift: watch until every first final is stored or the budget ends",
+    )
+    actions.add_argument("--date", default=None, help="extra ET slate date YYYY-MM-DD")
+    actions.add_argument("--mode", choices=("watch", "backfill"), default=None)
+
+    sub.add_parser("restore", help="copy the gamebooks branch into DATA_DIR")
+    sub.add_parser("publish", help="commit DATA_DIR to the gamebooks branch and push")
+
     back = sub.add_parser("backfill", help="download Wayback copies for one ET date")
     back.add_argument("date", help="YYYY-MM-DD")
 
@@ -78,6 +90,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "run":
         serve(config)
         return 0
+    if args.cmd == "actions":
+        return _actions(config, args)
+    if args.cmd == "restore":
+        return _restore(config)
+    if args.cmd == "publish":
+        return _publish(config)
     store = Store(config.data_dir)
     try:
         if args.cmd == "backfill":
@@ -114,6 +132,65 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         store.close()
     return 2
+
+
+def _actions(config, args) -> int:
+    from gbwatch.session import run_session
+
+    mode = (args.mode or os.environ.get("GBWATCH_MODE") or "watch").strip() or "watch"
+    raw_date = args.date
+    if raw_date is None:
+        raw_date = os.environ.get("GBWATCH_SLATE_DATE", "")
+    raw_date = (raw_date or "").strip()
+    slate = None
+    if raw_date:
+        try:
+            slate = date.fromisoformat(raw_date)
+        except ValueError:
+            print("date must be YYYY-MM-DD", file=sys.stderr)
+            return 2
+    if mode not in {"watch", "backfill"}:
+        print("mode must be watch or backfill", file=sys.stderr)
+        return 2
+    outcome = run_session(config, slate_date=slate, mode=mode)
+    if outcome == "error":
+        return 2
+    print(f"gbwatch actions: {outcome}")
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as handle:
+            handle.write(f"## gbwatch\n\n- Outcome: `{outcome}`\n")
+    return 0
+
+
+def _restore(config) -> int:
+    from gbwatch.persist import restore_data
+
+    restore_data(_repo_root(), config.data_dir)
+    return 0
+
+
+def _publish(config) -> int:
+    from gbwatch.persist import SecretLeak, publish_data
+
+    try:
+        publish_data(_repo_root(), config.data_dir)
+    except SecretLeak as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    return 0
+
+
+def _repo_root() -> Path:
+    proc = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode == 0 and proc.stdout.strip():
+        return Path(proc.stdout.strip())
+    return Path.cwd()
 
 
 def serve(config, *, client: httpx.Client | None = None, clock=None, sleep=time.sleep, max_ticks: int | None = None) -> None:
@@ -155,12 +232,25 @@ def serve(config, *, client: httpx.Client | None = None, clock=None, sleep=time.
             client.close()
 
 
-def _refresh_schedule(store, client, config, cache: EventCache, now: datetime, sleeper, started_at: datetime) -> None:
+def _refresh_schedule(
+    store,
+    client,
+    config,
+    cache: EventCache,
+    now: datetime,
+    sleeper,
+    started_at: datetime,
+    extra_dates: tuple[date, ...] = (),
+) -> None:
     today = et_calendar(now)
     discovered = []
     deadline = time.monotonic() + 20
     skip = {game.slug for game in store.all_games() if game.state == "DONE" and game.slug}
-    for day in (today, today - timedelta(days=1)):
+    days: list[date] = []
+    for day in (today, today - timedelta(days=1), *extra_dates):
+        if day not in days:
+            days.append(day)
+    for day in days:
         if time.monotonic() >= deadline:
             log.warning("schedule refresh time budget exhausted")
             break

@@ -154,6 +154,9 @@ class Store:
         return existing
 
     def save_game(self, game: Game) -> None:
+        current = self.get_game(game.game_id)
+        if current is not None and _game_equal(current, game):
+            return
         self.conn.execute(
             """
             INSERT INTO games (
@@ -230,6 +233,14 @@ class Store:
             (game_id,),
         ).fetchall()
         return [_version(row) for row in rows]
+
+    def all_versions(self) -> list[Version]:
+        rows = self.conn.execute("SELECT * FROM versions ORDER BY fetched_utc, id").fetchall()
+        return [_version(row) for row in rows]
+
+    def all_wayback_jobs(self) -> list[WaybackJob]:
+        rows = self.conn.execute("SELECT * FROM wayback_jobs ORDER BY id").fetchall()
+        return [_job(row) for row in rows]
 
     def insert_version(self, **fields) -> Version:
         cur = self.conn.execute(
@@ -399,6 +410,27 @@ def _fmt(moment: datetime | None) -> str | None:
     if moment is None:
         return None
     return format_utc(moment)
+
+
+def _game_equal(left: Game, right: Game) -> bool:
+    """True when a rewrite would not change any stored column except updated_utc."""
+    return (
+        left.game_id == right.game_id
+        and left.date_et == right.date_et
+        and left.away == right.away
+        and left.home == right.home
+        and left.slug == right.slug
+        and left.book_url == right.book_url
+        and _fmt(left.tip_utc) == _fmt(right.tip_utc)
+        and left.game_status == right.game_status
+        and left.game_status_text == right.game_status_text
+        and left.period == right.period
+        and left.state == right.state
+        and _fmt(left.final_seen_utc) == _fmt(right.final_seen_utc)
+        and _fmt(left.final_end_utc) == _fmt(right.final_end_utc)
+        and _fmt(left.next_box_poll_utc) == _fmt(right.next_box_poll_utc)
+        and _fmt(left.next_book_poll_utc) == _fmt(right.next_book_poll_utc)
+    )
 
 
 def _parse(value: str | None) -> datetime | None:
