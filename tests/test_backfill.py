@@ -27,7 +27,8 @@ def test_cdx_orders_partial_then_final_and_alerts_once(tmp_path):
         url = str(request.url)
         if "cdx/search" in url:
             assert "20261118" in url
-            assert "fl=timestamp,original,digest,length" in url
+            assert "fl=timestamp,original,digest" in url
+            assert "length" not in url.split("fl=", 1)[1].split("&", 1)[0]
             return httpx.Response(200, json=cdx)
         if "/web/" in url and "id_/" in url:
             for stamp, body in bodies.items():
@@ -52,6 +53,39 @@ def test_cdx_orders_partial_then_final_and_alerts_once(tmp_path):
     again = backfill_date(date(2026, 11, 18), store, client, sleeper=lambda _s: None)
     assert again == 0
     assert len(store.versions("book-20261118-MEMCLE")) == 2
+
+
+def test_cdx_ignores_rows_that_are_not_game_books(tmp_path):
+    final = (FIXTURES / "MEMCLE_final.pdf").read_bytes()
+    pbp = "https://statsdmz.nba.com/pdfs/20261118/20261118_MEMCLE_pbp.pdf"
+    cdx = [
+        ["timestamp", "original", "digest", "length"],
+        ["20261119031141", BOOK, "finaldigest", "2"],
+        ["20261119040000", pbp, "pbpdigest", "9"],
+    ]
+    downloads = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if "cdx/search" in url:
+            assert "filter=statuscode:200" in url
+            assert "filter=original:" in url
+            assert "_book" in url
+            fl = url.split("fl=", 1)[1].split("&", 1)[0]
+            assert fl == "timestamp,original,digest"
+            return httpx.Response(200, json=cdx)
+        if "/web/" in url and "id_/" in url:
+            downloads.append(url)
+            return httpx.Response(200, content=final)
+        return httpx.Response(503)
+
+    store = Store(tmp_path)
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    stored = backfill_date(date(2026, 11, 18), store, client, sleeper=lambda _s: None)
+    assert stored == 1
+    assert store.get_game("book-20261118-UNKUNK") is None
+    assert downloads
+    assert all("pbp" not in url for url in downloads)
 
 
 def test_empty_cdx_falls_back_to_available(tmp_path):

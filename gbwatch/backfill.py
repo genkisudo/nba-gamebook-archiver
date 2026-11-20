@@ -24,8 +24,10 @@ log = logging.getLogger("gbwatch.backfill")
 
 CDX_URL = (
     "https://web.archive.org/cdx/search/cdx"
-    "?url=statsdmz.nba.com/pdfs/{ymd}/*&output=json&fl=timestamp,original,digest,length"
+    "?url=statsdmz.nba.com/pdfs/{ymd}/*&output=json&fl=timestamp,original,digest"
+    "&filter=statuscode:200&filter=original:.*_book\\.pdf.*"
 )
+_BOOK_PDF = re.compile(r"_book\.pdf", re.IGNORECASE)
 AVAILABLE_URL = "https://archive.org/wayback/available"
 
 
@@ -122,10 +124,13 @@ def _cdx_rows(client, ymd: str, kwargs) -> list[dict] | None:
             continue
         if item[0] == "timestamp":
             continue
+        original = str(item[1])
+        if not _BOOK_PDF.search(original):
+            continue
         rows.append(
             {
                 "timestamp": str(item[0]),
-                "original": str(item[1]),
+                "original": original,
                 "digest": str(item[2]) if len(item) > 2 else "",
             }
         )
