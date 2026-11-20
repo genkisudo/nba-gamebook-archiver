@@ -106,6 +106,30 @@ def test_title_match_when_slug_differs():
     assert select_games([_game("ATL", "BOS", "1")], "polymarket", futures) == []
 
 
+def test_hornets_do_not_match_a_nets_game():
+    events = [
+        {
+            "slug": "charlotte-heat-night",
+            "title": "Hornets vs. Heat",
+            "eventDate": "2026-11-18",
+            "markets": [{"question": "LaMelo Ball: Points O/U 22.5"}],
+        }
+    ]
+    nets = _game("BKN", "MIA", "0022600999")
+    assert select_games([nets], "polymarket", events) == []
+    hornets = _game("CHA", "MIA", "0022601000")
+    assert [game.game_id for game in select_games([hornets], "polymarket", events)] == ["0022601000"]
+    real_nets = [
+        {
+            "slug": "nets-heat-night",
+            "title": "Nets vs. Heat",
+            "eventDate": "2026-11-18",
+            "markets": [{"question": "Cam Thomas: Points O/U 20.5"}],
+        }
+    ]
+    assert [game.game_id for game in select_games([nets], "polymarket", real_nets)] == ["0022600999"]
+
+
 def test_event_cache_ttl(monkeypatch):
     from gbwatch.polymarket import EventCache
 

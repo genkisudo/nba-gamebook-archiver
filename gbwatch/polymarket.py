@@ -201,4 +201,5 @@ def _event_date(event: dict) -> str | None:
 
 def _mentioned(tricode: str, blob: str) -> bool:
     names = TEAMS.get(tricode.upper(), (tricode.lower(),))
-    return any(name in blob for name in names)
+    # "nets" is a substring of "hornets". Hyphens in slugs are word boundaries.
+    return any(re.search(rf"\b{re.escape(name)}\b", blob) for name in names)
