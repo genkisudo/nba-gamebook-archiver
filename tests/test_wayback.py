@@ -278,6 +278,45 @@ def test_pending_status_expires_after_a_day_and_frees_the_slot(tmp_path, monkeyp
     assert submitted[0].version_id == second.id
 
 
+def test_submitted_status_is_polled_once_per_interval(tmp_path, monkeypatch):
+    monkeypatch.setenv("IA_ACCESS", ACCESS)
+    monkeypatch.setenv("IA_SECRET", SECRET)
+    calls = {"status": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "/save/status/" in str(request.url):
+            calls["status"] += 1
+            return httpx.Response(200, json={"status": "pending", "job_id": "job-1"})
+        raise AssertionError(f"unexpected {request.method} {request.url}")
+
+    store = Store(tmp_path)
+    game = _game()
+    store.save_game(game)
+    version = store.insert_version(
+        game_id=game.game_id,
+        url=game.book_url,
+        fetched_utc="2026-11-19T03:11:41Z",
+        sha256="c" * 64,
+        kind="final",
+        path="/tmp/c.pdf",
+        source="live",
+    )
+    clock = Clock()
+    store.enqueue_wayback(version.id, game.book_url, created_at=clock.now())
+    job = store.wayback_by_status("pending")[0]
+    store.update_wayback_job(job.id, status="submitted", job_id="job-1")
+    wayback = Wayback(
+        store,
+        httpx.Client(transport=httpx.MockTransport(handler)),
+        clock,
+        sleeper=lambda _s: None,
+    )
+    wayback.drain()
+    wayback.drain()
+    assert calls["status"] == 1
+    assert store.wayback_by_status("submitted")[0].next_try_utc == "2026-11-19T03:00:15Z"
+
+
 def test_missing_credentials_skip_the_request(tmp_path, monkeypatch):
     monkeypatch.delenv("IA_ACCESS", raising=False)
     monkeypatch.delenv("IA_SECRET", raising=False)

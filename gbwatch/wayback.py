@@ -19,6 +19,8 @@ from gbwatch.timeutil import format_utc, parse_utc
 # Network failures back off up to half an hour and stop after a day.
 MAX_BACKOFF_SECONDS = 30 * 60
 GIVE_UP_AFTER = timedelta(hours=24)
+# serve() can call drain about once a second. Don't hit status that often.
+STATUS_POLL_INTERVAL = timedelta(seconds=15)
 
 log = logging.getLogger("gbwatch.wayback")
 
@@ -65,7 +67,7 @@ class Wayback:
                     return
                 if not self._submit(job):
                     break
-        for job in self.store.wayback_by_status("submitted"):
+        for job in self.store.wayback_submitted_due(now):
             if time.monotonic() >= deadline:
                 return
             self._poll(job)
@@ -142,6 +144,8 @@ class Wayback:
                 self.store.update_wayback_job(job.id, status="failed", last_error=reason)
                 log.warning("wayback gave up version=%s reason=%s", job.version_id, reason)
                 return
+            nxt = self.clock.now() + STATUS_POLL_INTERVAL
+            self.store.update_wayback_job(job.id, next_try_utc=format_utc(nxt))
             return
         snapshot = snapshot_url(body)
         if state in {"success", "complete"} or snapshot:

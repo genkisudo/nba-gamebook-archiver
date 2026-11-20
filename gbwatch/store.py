@@ -382,6 +382,18 @@ class Store:
         ).fetchall()
         return [_job(row) for row in rows]
 
+    def wayback_submitted_due(self, now: datetime) -> list[WaybackJob]:
+        """Submitted jobs whose status check is due. NULL next_try means never polled."""
+        rows = self.conn.execute(
+            """
+            SELECT * FROM wayback_jobs
+            WHERE status = 'submitted' AND (next_try_utc IS NULL OR next_try_utc <= ?)
+            ORDER BY id
+            """,
+            (format_utc(now),),
+        ).fetchall()
+        return [_job(row) for row in rows]
+
     def wayback_ready(self, now: datetime, limit: int) -> list[WaybackJob]:
         rows = self.conn.execute(
             """
