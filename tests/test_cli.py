@@ -112,6 +112,17 @@ def test_redact_filter_scrubs_secret(caplog, monkeypatch):
     assert "[redacted]" in caplog.text
 
 
+def test_exception_traceback_scrubs_secret(caplog, monkeypatch):
+    monkeypatch.setenv("IA_ACCESS", "SUPERSECRETVALUE")
+    caplog.set_level(logging.ERROR)
+    try:
+        raise RuntimeError("header SUPERSECRETVALUE")
+    except RuntimeError:
+        logging.getLogger("gbwatch.test").exception("wayback failed")
+    assert "SUPERSECRETVALUE" not in caplog.text
+    assert "[redacted]" in caplog.text
+
+
 def test_serve_one_tick_offline(tmp_path):
     def handler(request: httpx.Request) -> httpx.Response:
         if "games?date=" in str(request.url):

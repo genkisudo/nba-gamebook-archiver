@@ -7,6 +7,7 @@ from pathlib import Path
 from gbwatch import classify
 from gbwatch.diff import diff_stats
 from gbwatch.models import Game, Version
+from gbwatch.paths import resolve_stored_path
 from gbwatch.store import Store
 from gbwatch.timeutil import format_utc, format_zones, parse_utc
 
@@ -64,7 +65,7 @@ def render_show(store: Store, game: Game) -> str:
             lines.append(f"  note: {first.note}")
         if len(finals) > 1:
             lines.append("later versions:")
-            first_stats = _stats(first)
+            first_stats = _stats(store, first)
             for version in finals[1:]:
                 lines.append(
                     f"  {version.fetched_utc}  source={version.source}  sha256={version.sha256}  "
@@ -72,7 +73,7 @@ def render_show(store: Store, game: Game) -> str:
                 )
                 if version.note:
                     lines.append(f"    note: {version.note}")
-                changes = diff_stats(first_stats, _stats(version))
+                changes = diff_stats(first_stats, _stats(store, version))
                 if not changes:
                     lines.append("    diffs: none")
                 for change in changes:
@@ -96,10 +97,10 @@ def render_diff(store: Store, game: Game) -> str:
     if len(finals) == 1:
         lines.append("no later finals")
         return "\n".join(lines) + "\n"
-    base = _stats(first)
+    base = _stats(store, first)
     for version in finals[1:]:
         lines.append(f"vs {version.fetched_utc} {version.sha256}")
-        changes = diff_stats(base, _stats(version))
+        changes = diff_stats(base, _stats(store, version))
         if not changes:
             lines.append("  none")
         for change in changes:
@@ -128,8 +129,8 @@ def render_summary(store: Store, date_et: str) -> str:
     return "\n".join(lines)
 
 
-def _stats(version: Version) -> dict:
-    path = Path(version.path)
+def _stats(store: Store, version: Version) -> dict:
+    path = resolve_stored_path(store.data_dir, version.path)
     if not path.is_file():
         return {}
     try:
