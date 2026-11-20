@@ -134,6 +134,14 @@ class Wayback:
             return
         state = str(body.get("status") or "").lower()
         if state in {"pending", "processing"}:
+            # _defer is the only other give-up check, and this path never calls it.
+            # A job that stays pending would hold a max_concurrent slot forever.
+            created = parse_utc(job.created_utc) if job.created_utc else self.clock.now()
+            if self.clock.now() - created >= GIVE_UP_AFTER:
+                reason = f"status {state} >24h"
+                self.store.update_wayback_job(job.id, status="failed", last_error=reason)
+                log.warning("wayback gave up version=%s reason=%s", job.version_id, reason)
+                return
             return
         snapshot = snapshot_url(body)
         if state in {"success", "complete"} or snapshot:

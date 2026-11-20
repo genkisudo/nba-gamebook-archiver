@@ -218,6 +218,66 @@ def test_concurrent_cap(tmp_path, monkeypatch):
     assert len(store.wayback_by_status("pending")) == 2
 
 
+def test_pending_status_expires_after_a_day_and_frees_the_slot(tmp_path, monkeypatch, caplog):
+    """A Save Page Now job that stays pending must not hold a slot forever."""
+    monkeypatch.setenv("IA_ACCESS", ACCESS)
+    monkeypatch.setenv("IA_SECRET", SECRET)
+    caplog.set_level("WARNING")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(200, json={"job_id": "stuck-1"})
+        return httpx.Response(200, json={"status": "pending", "job_id": "stuck-1"})
+
+    store = Store(tmp_path)
+    game = _game()
+    store.save_game(game)
+    clock = Clock()
+    wayback = Wayback(
+        store,
+        httpx.Client(transport=httpx.MockTransport(handler)),
+        clock,
+        sleeper=lambda _s: None,
+        max_concurrent=10,
+    )
+    first = store.insert_version(
+        game_id=game.game_id,
+        url=game.book_url,
+        fetched_utc="2026-11-19T03:11:41Z",
+        sha256="a" * 64,
+        kind="final",
+        path="/tmp/a.pdf",
+        source="live",
+    )
+    wayback.enqueue(first.id, game.book_url)
+    wayback.drain()
+    assert len(store.wayback_by_status("submitted")) == 1
+
+    clock.now_at = clock.now_at + __import__("datetime").timedelta(hours=25)
+    wayback.drain()
+    failed = store.wayback_by_status("failed")
+    assert len(failed) == 1
+    assert failed[0].last_error == "status pending >24h"
+    assert store.wayback_by_status("submitted") == []
+    assert len([rec for rec in caplog.records if rec.levelname == "WARNING"]) == 1
+    assert SECRET not in caplog.text
+
+    second = store.insert_version(
+        game_id=game.game_id,
+        url=game.book_url,
+        fetched_utc="2026-11-20T04:11:41Z",
+        sha256="b" * 64,
+        kind="final",
+        path="/tmp/b.pdf",
+        source="live",
+    )
+    wayback.enqueue(second.id, game.book_url)
+    wayback.drain()
+    submitted = store.wayback_by_status("submitted")
+    assert len(submitted) == 1
+    assert submitted[0].version_id == second.id
+
+
 def test_missing_credentials_skip_the_request(tmp_path, monkeypatch):
     monkeypatch.delenv("IA_ACCESS", raising=False)
     monkeypatch.delenv("IA_SECRET", raising=False)
