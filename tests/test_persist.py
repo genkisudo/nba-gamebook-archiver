@@ -72,6 +72,7 @@ def test_manifest_records_fetch_headers_pdf_date_and_wayback(tmp_path):
     assert line["first_final"] is True
     assert line["wayback_status"] == "pending"
     assert line["wayback_url"] is None
+    assert line["wayback_mismatch_url"] is None
     assert line["path"].endswith(".pdf")
     assert not Path(line["path"]).is_absolute()
     per_game = json.loads((tmp_path / "20261118" / "MEMCLE" / "manifest.json").read_text())
@@ -85,12 +86,16 @@ def test_manifest_records_fetch_headers_pdf_date_and_wayback(tmp_path):
     version = store.versions("0022600258")[0]
     store.set_late_capture(version.id)
     store.set_wayback_url(version.id, "https://web.archive.org/web/20261119031141/https://statsdmz.nba.com/x.pdf")
+    store.set_wayback_mismatch_url(
+        version.id, "https://web.archive.org/web/20261119040000/https://statsdmz.nba.com/x.pdf"
+    )
     store.update_wayback_job(store.all_wayback_jobs()[0].id, status="done", wayback_url="https://web.archive.org/web/x")
     write_manifests(store)
     updated = json.loads((tmp_path / "manifest.jsonl").read_text().splitlines()[0])
     assert updated["late_capture"] is True
     assert updated["wayback_status"] == "done"
     assert updated["wayback_url"].startswith("https://web.archive.org/web/")
+    assert updated["wayback_mismatch_url"].startswith("https://web.archive.org/web/")
     store.close()
 
 

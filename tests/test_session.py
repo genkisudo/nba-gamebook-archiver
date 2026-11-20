@@ -109,6 +109,34 @@ def test_settle_expired_drops_only_games_the_daemon_would_drop(tmp_path):
     assert store.get_game(fresh.game_id).state == "DONE"
 
 
+def test_discovered_final_without_an_end_time_lasts_twelve_hours(tmp_path):
+    """Already final at discovery, and the box score has no actualEndTimeUTC.
+
+    The daemon keeps that game for 12h after discovery. Dropping it at tip + 6h
+    ends the shift while the watcher would still be polling the book.
+    """
+    discovered = TIP + timedelta(hours=5)
+    game = _game(
+        state="FINAL_SEEN",
+        game_status=3,
+        game_status_text="Final",
+        final_seen_utc=None,
+        final_end_utc=None,
+        final_discovered_utc=discovered,
+    )
+    # Past tip + 6h, still inside 12h of discovery.
+    now = TIP + timedelta(hours=7)
+    assert needs_this_run(game, now, now + timedelta(hours=1))
+    store = Store(tmp_path)
+    store.save_game(game)
+    settle_expired(store, now)
+    assert store.get_game(game.game_id).state == "FINAL_SEEN"
+    later = discovered + timedelta(hours=12)
+    assert not needs_this_run(game, later, later + timedelta(hours=1))
+    settle_expired(store, later)
+    assert store.get_game(game.game_id).state == "DONE"
+
+
 def test_shift_with_nothing_in_budget_exits_without_waiting(tmp_path, monkeypatch):
     monkeypatch.delenv("IA_ACCESS", raising=False)
     monkeypatch.delenv("IA_SECRET", raising=False)
