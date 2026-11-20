@@ -14,12 +14,11 @@ mkdir -p "$DATA_DIR"
 LOG="$DATA_DIR/gbwatch.log"
 PIDFILE="$DATA_DIR/gbwatch.pid"
 
-if [[ -f "$PIDFILE" ]]; then
-  old="$(cat "$PIDFILE" || true)"
-  if [[ -n "$old" ]] && kill -0 "$old" 2>/dev/null; then
-    echo "already running pid $old"
-    exit 0
-  fi
+# Held by the daemon (fd 9 is inherited). A reused pid must not look like us.
+exec 9>"$DATA_DIR/gbwatch.lock"
+if ! flock -n 9; then
+  echo "already running"
+  exit 0
 fi
 
 export DATA_DIR

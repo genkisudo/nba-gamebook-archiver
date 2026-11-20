@@ -178,7 +178,7 @@ def test_run_sh_discards_stdout_and_keeps_stderr(tmp_path):
     bin_dir = root / ".venv" / "bin"
     bin_dir.mkdir(parents=True)
     stub = bin_dir / "gbwatch"
-    stub.write_text("#!/bin/sh\necho STDOUT_MARKER\necho STDERR_MARKER >&2\nsleep 30\n")
+    stub.write_text("#!/bin/sh\necho STDOUT_MARKER\necho STDERR_MARKER >&2\nexec sleep 30\n")
     stub.chmod(0o755)
     source = Path(__file__).resolve().parents[1] / "scripts" / "run.sh"
     script = root / "scripts" / "run.sh"
@@ -208,6 +208,57 @@ def test_run_sh_discards_stdout_and_keeps_stderr(tmp_path):
         if pid:
             try:
                 os.kill(pid, 15)
+            except ProcessLookupError:
+                pass
+
+
+def test_run_sh_lock_is_not_fooled_by_a_reused_pid(tmp_path):
+    root = tmp_path / "app"
+    (root / "scripts").mkdir(parents=True)
+    bin_dir = root / ".venv" / "bin"
+    bin_dir.mkdir(parents=True)
+    stub = bin_dir / "gbwatch"
+    stub.write_text("#!/bin/sh\nexec sleep 60\n")
+    stub.chmod(0o755)
+    source = Path(__file__).resolve().parents[1] / "scripts" / "run.sh"
+    script = root / "scripts" / "run.sh"
+    script.write_text(source.read_text())
+    script.chmod(0o755)
+    data = tmp_path / "data"
+    env = os.environ.copy()
+    env["DATA_DIR"] = str(data)
+
+    def start():
+        return subprocess.run(
+            ["bash", str(script)], env=env, capture_output=True, text=True, timeout=10
+        )
+
+    first = start()
+    assert first.returncode == 0, first.stderr
+    pid = int((data / "gbwatch.pid").read_text())
+    second = start()
+    assert second.returncode == 0
+    assert "already running" in second.stdout
+    os.kill(pid, 15)
+    for _ in range(50):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.05)
+    # The pidfile now names this live pytest process, which is not gbwatch.
+    (data / "gbwatch.pid").write_text(str(os.getpid()))
+    third = start()
+    new_pid = None
+    try:
+        assert third.returncode == 0, third.stderr
+        assert "started pid" in third.stdout
+        new_pid = int((data / "gbwatch.pid").read_text())
+        assert new_pid != os.getpid()
+    finally:
+        if new_pid and new_pid != os.getpid():
+            try:
+                os.kill(new_pid, 15)
             except ProcessLookupError:
                 pass
 
