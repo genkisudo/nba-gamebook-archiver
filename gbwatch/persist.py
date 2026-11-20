@@ -146,10 +146,12 @@ def publish_data(
 ) -> bool:
     """Commit `source` onto `branch` and push. Returns False when nothing changed.
 
-    On GitHub Actions, restore must have finished (it writes `.restore-ok`).
-    That stops a failed restore from replacing the branch with an empty tree.
+    The watch workflow sets GBWATCH_REQUIRE_RESTORE. Publish then requires the
+    marker restore writes, so a failed restore cannot replace the branch.
+    The variable is not GITHUB_ACTIONS: the test job sets that and must still
+    be able to exercise publish.
     """
-    if os.environ.get("GITHUB_ACTIONS") == "true" and not (source / _RESTORE_MARKER).is_file():
+    if os.environ.get("GBWATCH_REQUIRE_RESTORE") == "1" and not (source / _RESTORE_MARKER).is_file():
         raise RuntimeError("refusing to publish: restore did not finish")
     if not worth_publishing(source):
         log.info("nothing to publish")

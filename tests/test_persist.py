@@ -153,7 +153,7 @@ def test_publish_refuses_secret_material_and_a_missed_restore(tmp_path, monkeypa
     )
     assert missing.returncode != 0
 
-    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GBWATCH_REQUIRE_RESTORE", "1")
     (data / "notes.txt").unlink()
     with pytest.raises(RuntimeError, match="restore did not finish"):
         publish_data(repo, data)

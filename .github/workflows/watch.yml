@@ -82,4 +82,5 @@ jobs:
         env:
           IA_ACCESS: ${{ secrets.IA_ACCESS }}
           IA_SECRET: ${{ secrets.IA_SECRET }}
+          GBWATCH_REQUIRE_RESTORE: "1"
         run: gbwatch publish
