@@ -92,6 +92,24 @@ def test_late_first_capture_when_book_arrives_after_the_end(tmp_path, monkeypatc
     assert "LATE: not proof of first book" in capsys.readouterr().out
 
 
+def test_lateness_uses_the_earlier_of_the_live_observation_and_the_end(tmp_path, monkeypatch):
+    """The live observation does not win when the box score ended earlier."""
+    monkeypatch.delenv("LATE_CAPTURE_MINUTES", raising=False)
+    store = Store(tmp_path)
+    fetched = datetime(2026, 11, 19, 3, 0, tzinfo=timezone.utc)
+    game = _game(
+        final_seen_utc=fetched - timedelta(minutes=10),
+        final_end_utc=fetched - timedelta(minutes=40),
+    )
+    store.save_game(game)
+    ingest_bytes(
+        store, game, PDF, url=game.book_url, fetched_at=fetched, source="live",
+        last_modified=None, etag=None, size=len(PDF), now=fetched,
+    )
+    assert store.versions(game.game_id)[0].late_capture == 1
+    assert store.unread_alerts(0)[0]["gap_minutes"] == 40
+
+
 def test_late_window_is_configurable(tmp_path, monkeypatch):
     monkeypatch.setenv("LATE_CAPTURE_MINUTES", "60")
     store = Store(tmp_path)
