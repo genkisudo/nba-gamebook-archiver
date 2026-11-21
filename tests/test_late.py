@@ -233,3 +233,69 @@ def test_startup_flags_late_when_the_box_has_no_end_time(tmp_path):
     assert version.late_capture == 1
     alert = store.unread_alerts(0)[0]
     assert alert["type"] == "late_first_capture"
+
+
+def test_slate_refresh_of_a_live_game_is_a_live_final(tmp_path, monkeypatch):
+    """Q4 in the store, then a slate refresh that already says Final.
+
+    The refresh runs before the 60s box poll. It has to record final_seen_utc,
+    or a book a few minutes later is flagged late when the box has no end time.
+    """
+    monkeypatch.delenv("LATE_CAPTURE_MINUTES", raising=False)
+    monkeypatch.delenv("IA_ACCESS", raising=False)
+    monkeypatch.delenv("IA_SECRET", raising=False)
+    store = Store(tmp_path)
+    tip = datetime(2026, 11, 19, 0, 0, tzinfo=timezone.utc)
+    store.save_game(
+        _game(
+            tip_utc=tip,
+            game_status=2,
+            game_status_text="Q4 2:00",
+            period=4,
+            state="LIVE",
+            final_seen_utc=None,
+            final_end_utc=None,
+            final_discovered_utc=None,
+        )
+    )
+    seen = tip + timedelta(hours=2, minutes=20)
+    books: list[str] = []
+    client = _refresh(store, None, "2026-11-19T00:00:00Z", seen, books)
+    game = store.get_game("0022600258")
+    assert game is not None
+    assert game.final_seen_utc == seen
+    assert game.final_discovered_utc is None
+
+    fetched = seen + timedelta(minutes=5)
+
+    class Clock:
+        def now(self):
+            return fetched
+
+    Watcher(store, client, Clock(), sleeper=lambda _s: None).tick(fetched)
+    assert books
+    version = store.versions("0022600258")[0]
+    assert version.kind == "final"
+    assert version.late_capture == 0
+    assert store.unread_alerts(0)[0]["type"] == "first_final"
+    stored = store.get_game("0022600258")
+    assert stored.final_seen_utc == seen
+    assert stored.final_discovered_utc is None
+
+
+def test_slate_refresh_keeps_discovery_for_a_game_already_final(tmp_path):
+    """A stored Final with no observation is discovery, not a live flip."""
+    store = Store(tmp_path)
+    started = datetime(2026, 11, 19, 4, 0, tzinfo=timezone.utc)
+    store.save_game(
+        _game(
+            state="WATCH_BOOK",
+            final_seen_utc=None,
+            final_end_utc=None,
+            final_discovered_utc=None,
+        )
+    )
+    _refresh(store, None, "2026-11-19T00:00:00Z", started, [])
+    game = store.get_game("0022600258")
+    assert game.final_seen_utc is None
+    assert game.final_discovered_utc == started
