@@ -400,8 +400,8 @@
       "pdf_created": "2026-11-22T05:39:12Z",
       "sha256": "1f15fef1f3c07ae551b56b215bbe18264843e05923f8c0713a5941ee4cb15127",
       "wayback_url": null,
-      "wayback_mismatch_url": null,
-      "wayback_status": "submitted",
+      "wayback_mismatch_url": "https://web.archive.org/web/20261122210505/https://statsdmz.nba.com/pdfs/20261121/20261121_BOSSAC_book.pdf?t=1795381479221",
+      "wayback_status": "failed",
       "late_capture": false,
       "first_final": true,
       "path": "20261121/BOSSAC/20261122T053930Z_1f15fef1.pdf"
