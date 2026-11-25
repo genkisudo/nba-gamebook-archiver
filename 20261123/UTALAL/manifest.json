@@ -340,8 +340,8 @@
       "pdf_created": "2026-11-24T05:36:03Z",
       "sha256": "4d3883c8384e15d46ddf3e991ddb3cd87dbb2bd49fb9bbadd9df61fdc95de4d1",
       "wayback_url": null,
-      "wayback_mismatch_url": null,
-      "wayback_status": "submitted",
+      "wayback_mismatch_url": "https://web.archive.org/web/20261124234946/https://statsdmz.nba.com/pdfs/20261123/20261123_UTALAL_book.pdf?t=1795564175633",
+      "wayback_status": "failed",
       "late_capture": false,
       "first_final": true,
       "path": "20261123/UTALAL/20261124T053658Z_4d3883c8.pdf"
