@@ -1,0 +1,50 @@
+{
+  "game_id": "0022600071",
+  "date_et": "2026-11-27",
+  "away": "LAL",
+  "home": "SAS",
+  "book_url": "https://statsdmz.nba.com/pdfs/20261127/20261127_LALSAS_book.pdf",
+  "state": "LIVE",
+  "versions": [
+    {
+      "game_id": "0022600071",
+      "date_et": "2026-11-27",
+      "away": "LAL",
+      "home": "SAS",
+      "book_url": "https://statsdmz.nba.com/pdfs/20261127/20261127_LALSAS_book.pdf",
+      "kind": "in_game",
+      "source": "live",
+      "fetched_utc": "2026-11-28T04:15:10Z",
+      "last_modified": "Sat, 28 Nov 2026 04:12:52 GMT",
+      "etag": "\"a76bf1bcee7edd1:0\"",
+      "pdf_created": null,
+      "sha256": "16274dde49fedbd04ced93f5dac662057bbf93b9eb6c78e89a8e3463a6f05ca1",
+      "wayback_url": null,
+      "wayback_mismatch_url": null,
+      "wayback_status": "skipped",
+      "late_capture": false,
+      "first_final": false,
+      "path": ""
+    },
+    {
+      "game_id": "0022600071",
+      "date_et": "2026-11-27",
+      "away": "LAL",
+      "home": "SAS",
+      "book_url": "https://statsdmz.nba.com/pdfs/20261127/20261127_LALSAS_book.pdf",
+      "kind": "in_game",
+      "source": "live",
+      "fetched_utc": "2026-11-28T04:17:10Z",
+      "last_modified": "Sat, 28 Nov 2026 04:16:47 GMT",
+      "etag": "\"9e55e948ef7edd1:0\"",
+      "pdf_created": null,
+      "sha256": "adfbe29a8e058685890162419c26e156ecb40bf8e51dbc37e4dec81f83657049",
+      "wayback_url": null,
+      "wayback_mismatch_url": null,
+      "wayback_status": "skipped",
+      "late_capture": false,
+      "first_final": false,
+      "path": ""
+    }
+  ]
+}

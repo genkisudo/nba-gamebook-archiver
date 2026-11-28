@@ -1,0 +1,50 @@
+{
+  "game_id": "0022600072",
+  "date_et": "2026-11-27",
+  "away": "DEN",
+  "home": "UTA",
+  "book_url": "https://statsdmz.nba.com/pdfs/20261127/20261127_DENUTA_book.pdf",
+  "state": "LIVE",
+  "versions": [
+    {
+      "game_id": "0022600072",
+      "date_et": "2026-11-27",
+      "away": "DEN",
+      "home": "UTA",
+      "book_url": "https://statsdmz.nba.com/pdfs/20261127/20261127_DENUTA_book.pdf",
+      "kind": "in_game",
+      "source": "live",
+      "fetched_utc": "2026-11-28T04:15:10Z",
+      "last_modified": "Sat, 28 Nov 2026 04:13:02 GMT",
+      "etag": "\"a39cfac2ee7edd1:0\"",
+      "pdf_created": null,
+      "sha256": "3d73ce5242bac55b8f84bf9d586727f71680e823819106abee669077a46cb0e8",
+      "wayback_url": null,
+      "wayback_mismatch_url": null,
+      "wayback_status": "skipped",
+      "late_capture": false,
+      "first_final": false,
+      "path": ""
+    },
+    {
+      "game_id": "0022600072",
+      "date_et": "2026-11-27",
+      "away": "DEN",
+      "home": "UTA",
+      "book_url": "https://statsdmz.nba.com/pdfs/20261127/20261127_DENUTA_book.pdf",
+      "kind": "in_game",
+      "source": "live",
+      "fetched_utc": "2026-11-28T04:17:10Z",
+      "last_modified": "Sat, 28 Nov 2026 04:16:57 GMT",
+      "etag": "W/\"2326e44eef7edd1:0\"",
+      "pdf_created": null,
+      "sha256": "970dda7486f638e492af305cc589acc58b11a5bbd46c86dea05042d5fed670b7",
+      "wayback_url": null,
+      "wayback_mismatch_url": null,
+      "wayback_status": "skipped",
+      "late_capture": false,
+      "first_final": false,
+      "path": ""
+    }
+  ]
+}

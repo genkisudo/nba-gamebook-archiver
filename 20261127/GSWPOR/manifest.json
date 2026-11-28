@@ -1,0 +1,50 @@
+{
+  "game_id": "0022600074",
+  "date_et": "2026-11-27",
+  "away": "GSW",
+  "home": "POR",
+  "book_url": "https://statsdmz.nba.com/pdfs/20261127/20261127_GSWPOR_book.pdf",
+  "state": "LIVE",
+  "versions": [
+    {
+      "game_id": "0022600074",
+      "date_et": "2026-11-27",
+      "away": "GSW",
+      "home": "POR",
+      "book_url": "https://statsdmz.nba.com/pdfs/20261127/20261127_GSWPOR_book.pdf",
+      "kind": "in_game",
+      "source": "live",
+      "fetched_utc": "2026-11-28T04:15:10Z",
+      "last_modified": "Sat, 28 Nov 2026 04:13:23 GMT",
+      "etag": "\"d8b4bcfee7edd1:0\"",
+      "pdf_created": null,
+      "sha256": "202e23d7367abd3836a122302939eaee1513fa8864cf12a1377c54a61f4464f8",
+      "wayback_url": null,
+      "wayback_mismatch_url": null,
+      "wayback_status": "skipped",
+      "late_capture": false,
+      "first_final": false,
+      "path": ""
+    },
+    {
+      "game_id": "0022600074",
+      "date_et": "2026-11-27",
+      "away": "GSW",
+      "home": "POR",
+      "book_url": "https://statsdmz.nba.com/pdfs/20261127/20261127_GSWPOR_book.pdf",
+      "kind": "in_game",
+      "source": "live",
+      "fetched_utc": "2026-11-28T04:18:10Z",
+      "last_modified": "Sat, 28 Nov 2026 04:17:16 GMT",
+      "etag": "\"f0a14e5aef7edd1:0\"",
+      "pdf_created": null,
+      "sha256": "9b4d962ca347ed208e0b081b784b8a253b0dfb6eedd34ed5667dcd8689dea86d",
+      "wayback_url": null,
+      "wayback_mismatch_url": null,
+      "wayback_status": "skipped",
+      "late_capture": false,
+      "first_final": false,
+      "path": ""
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "game_id": "0022600073",
+  "date_et": "2026-11-27",
+  "away": "NOP",
+  "home": "LAC",
+  "book_url": "https://statsdmz.nba.com/pdfs/20261127/20261127_NOPLAC_book.pdf",
+  "state": "LIVE",
+  "versions": [
+    {
+      "game_id": "0022600073",
+      "date_et": "2026-11-27",
+      "away": "NOP",
+      "home": "LAC",
+      "book_url": "https://statsdmz.nba.com/pdfs/20261127/20261127_NOPLAC_book.pdf",
+      "kind": "in_game",
+      "source": "live",
+      "fetched_utc": "2026-11-28T04:15:10Z",
+      "last_modified": "Sat, 28 Nov 2026 04:13:13 GMT",
+      "etag": "\"dd4fdc8ee7edd1:0\"",
+      "pdf_created": null,
+      "sha256": "cd72bb297ce53a38a657590372b46c5de09797c4f306ebb4f46b6bcde6370860",
+      "wayback_url": null,
+      "wayback_mismatch_url": null,
+      "wayback_status": "skipped",
+      "late_capture": false,
+      "first_final": false,
+      "path": ""
+    },
+    {
+      "game_id": "0022600073",
+      "date_et": "2026-11-27",
+      "away": "NOP",
+      "home": "LAC",
+      "book_url": "https://statsdmz.nba.com/pdfs/20261127/20261127_NOPLAC_book.pdf",
+      "kind": "in_game",
+      "source": "live",
+      "fetched_utc": "2026-11-28T04:17:10Z",
+      "last_modified": "Sat, 28 Nov 2026 04:17:06 GMT",
+      "etag": "W/\"e57b4054ef7edd1:0\"",
+      "pdf_created": null,
+      "sha256": "e94f06e2555981ad053d081aca8861290e47218ca8f4c77de0fbcad59ffaf16c",
+      "wayback_url": null,
+      "wayback_mismatch_url": null,
+      "wayback_status": "skipped",
+      "late_capture": false,
+      "first_final": false,
+      "path": ""
+    }
+  ]
+}
